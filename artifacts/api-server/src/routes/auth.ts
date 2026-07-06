@@ -32,10 +32,11 @@ router.post("/auth/login", async (req, res): Promise<void> => {
       { expiresIn: TOKEN_EXPIRY }
     );
 
+    const isProd = process.env.NODE_ENV === "production";
     res.cookie("auth_token", jwtToken, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "lax",
+      secure: isProd,
+      sameSite: isProd ? "none" : "lax",
       maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
     });
 
