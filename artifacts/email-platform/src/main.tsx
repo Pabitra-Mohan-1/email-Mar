@@ -3,7 +3,7 @@ import App from "./App";
 import "./index.css";
 import { setBaseUrl } from "@workspace/api-client-react";
 
-const apiBaseUrl = (import.meta.env.VITE_API_URL || "").replace(/\/$/, "");
+const apiBaseUrl = (import.meta.env.VITE_API_URL || "https://email-marketing-rouge.vercel.app").replace(/\/$/, "");
 setBaseUrl(apiBaseUrl);
 
 // Override global fetch to redirect relative /api calls and include credentials for cross-domain cookies
