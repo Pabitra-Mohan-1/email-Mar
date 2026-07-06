@@ -1,0 +1,521 @@
+# Production-Ready Email Marketing Platform (MongoDB Edition)
+
+## Objective
+
+Build a **production-ready Email Marketing Platform** similar to Mailchimp, Brevo, or SendGrid using the following stack:
+
+### Frontend
+
+* React 19
+* Vite
+* React Router
+* Tailwind CSS
+* Shadcn UI
+* React Hook Form
+* TanStack Query
+* Axios
+* React Toastify
+* Chart.js
+* Socket.io Client
+
+### Backend
+
+* Node.js
+* Express.js
+* MongoDB (Mongoose)
+* Redis
+* BullMQ
+* Nodemailer
+* IMAPFlow
+* Multer
+* XLSX
+* JWT Authentication
+* Bcrypt
+* Helmet
+* CORS
+* Compression
+* Winston Logger
+* Joi Validation
+* Socket.io
+
+---
+
+# Architecture
+
+Follow a **production-ready Clean MVC Architecture**.
+
+```
+client/
+
+server/
+│
+├── config/
+├── controllers/
+├── middlewares/
+├── models/
+├── routes/
+├── services/
+├── validators/
+├── queues/
+├── workers/
+├── sockets/
+├── utils/
+├── templates/
+├── uploads/
+├── logs/
+├── scripts/
+└── app.js
+```
+
+The application must be:
+
+* Modular
+* Scalable
+* Secure
+* Maintainable
+* Production Ready
+* Well Commented
+* Reusable
+
+Do not generate everything in one response.
+
+Generate **one module at a time**.
+
+Wait for confirmation before generating the next module.
+
+---
+
+# Database
+
+Use **MongoDB only** with **Mongoose**.
+
+Do NOT use MySQL or PostgreSQL.
+
+Design proper schemas, indexes, references, validations, timestamps, and relationships.
+
+Create the following collections.
+
+## Authentication
+
+* users
+* refresh_tokens
+* password_reset_tokens
+* audit_logs
+
+---
+
+## Contacts
+
+* contacts
+* contact_groups
+* contact_tags
+* contact_imports
+
+Fields
+
+* Name
+* Email
+* Company
+* Phone
+* Website
+* City
+* Country
+* Notes
+
+Features
+
+* CSV Import
+* XLS Import
+* XLSX Import
+* Email Validation
+* Duplicate Removal
+* Search
+* Filter
+* Bulk Edit
+* Bulk Delete
+* Tags
+* Groups
+
+---
+
+## Templates
+
+Collection
+
+* email_templates
+
+Support
+
+* Rich HTML
+* Draft
+* Duplicate
+* Preview
+
+Variables
+
+```
+{{name}}
+{{email}}
+{{company}}
+{{phone}}
+{{city}}
+{{country}}
+```
+
+---
+
+## SMTP
+
+Collection
+
+* smtp_accounts
+
+Store
+
+* Host
+* Port
+* Username
+* Password
+* Encryption
+* Hourly Limit
+* Daily Limit
+* Priority
+* Health
+* Status
+
+Features
+
+* Test SMTP
+* Enable
+* Disable
+* SMTP Rotation
+* Health Check
+
+---
+
+## Campaigns
+
+Collection
+
+* campaigns
+
+Fields
+
+* Campaign Name
+* Subject
+* Sender Name
+* SMTP
+* Template
+* Contact Group
+* Schedule
+* Hourly Limit
+* Daily Limit
+
+Status
+
+* Draft
+* Scheduled
+* Running
+* Paused
+* Completed
+* Cancelled
+
+---
+
+## Queue
+
+BullMQ + Redis
+
+Never send emails directly.
+
+Create BullMQ jobs.
+
+Workers must process the jobs.
+
+Store job metadata in MongoDB.
+
+Collection
+
+* email_jobs
+
+Features
+
+* Retry
+* Pause
+* Resume
+* Cancel
+* Queue Status
+
+---
+
+## Scheduler
+
+Every hour
+
+Example
+
+Upload
+
+1500 contacts
+
+Automatically send
+
+200 emails/hour
+
+Until all emails are completed.
+
+---
+
+## Logs
+
+Collection
+
+* email_logs
+
+Store
+
+* Recipient
+* Campaign
+* SMTP
+* Status
+* Retry Count
+* SMTP Response
+* Timestamp
+
+---
+
+## Inbox
+
+Using IMAPFlow
+
+Collections
+
+* imap_accounts
+* emails
+* attachments
+
+Folders
+
+* Inbox
+* Sent
+* Draft
+* Spam
+* Trash
+
+Features
+
+* Read
+* Reply
+* Forward
+* Delete
+* Archive
+* Mark Read
+* Mark Unread
+* Download Attachments
+
+---
+
+## Notifications
+
+Collection
+
+* notifications
+
+Realtime
+
+Socket.io
+
+Notify
+
+* Campaign Started
+* Campaign Finished
+* SMTP Failed
+* Queue Completed
+* Contact Imported
+
+---
+
+## Reports
+
+Collections
+
+* campaign_reports
+* smtp_reports
+* daily_reports
+
+Show
+
+* Success Rate
+* Failure Rate
+* Campaign Report
+* SMTP Report
+* Daily Report
+* Monthly Report
+
+Keep placeholders for future
+
+* Open Tracking
+* Click Tracking
+* Bounce Tracking
+
+---
+
+## Settings
+
+Collection
+
+* settings
+
+Store
+
+* Company Name
+* Logo
+* Theme
+* SMTP Defaults
+* Queue Settings
+* Timezone
+
+---
+
+## Dashboard Cache
+
+Collection
+
+* dashboard_stats
+
+Store precomputed values
+
+* Total Contacts
+* Total Campaigns
+* Emails Sent Today
+* Total Emails Sent
+* Pending Queue
+* Failed Emails
+* SMTP Accounts
+* Reply Count
+* Inbox Count
+
+Refresh automatically.
+
+---
+
+# Authentication
+
+Implement
+
+* JWT Authentication
+* Refresh Token
+* Role Based Authentication
+* Login
+* Logout
+* Forgot Password
+* Reset Password
+* Change Password
+* Profile
+* Auto Logout
+
+Use
+
+* Bcrypt
+* JWT
+* Secure Cookies (where applicable)
+* Joi Validation
+
+---
+
+# Security
+
+Implement
+
+* Helmet
+* CORS
+* Rate Limiting
+* Input Validation
+* Environment Variables
+* Audit Logs
+* Protected APIs
+* Password Hashing
+* Error Handling
+
+---
+
+# Performance
+
+Implement
+
+* MongoDB Indexes
+* Redis Cache
+* Pagination
+* Lazy Loading
+* Compression
+* Optimized Queries
+* Background Workers
+
+---
+
+# Deployment
+
+Prepare for
+
+* Docker
+* PM2
+* Nginx
+* Production Environment
+* Environment Variables
+
+---
+
+# Coding Standards
+
+Always
+
+* Use reusable components
+* Use reusable services
+* Use reusable hooks
+* Follow MVC
+* Use async/await
+* Proper error handling
+* Professional folder structure
+* Clean code
+* Production best practices
+* No duplicate code
+* Add comments where necessary
+
+---
+
+# Response Format
+
+Generate **one module at a time**.
+
+Each module must include:
+
+1. Folder Structure
+2. Required Packages
+3. Configuration
+4. Mongoose Models
+5. Controllers
+6. Routes
+7. Services
+8. Validators
+9. Middlewares
+10. Utilities
+11. Error Handling
+12. API Endpoints
+13. Sample Requests
+14. Sample Responses
+15. Production Best Practices
+
+Do **not** skip any files.
+
+Generate complete, production-ready code.
+
+After completing a module, stop and wait for my confirmation before generating the next module.
+
+Begin with:
+
+1. Project Setup
+2. Folder Structure
+3. Backend Setup
+4. Frontend Setup
+5. Authentication
+6. Dashboard

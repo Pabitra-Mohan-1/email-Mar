@@ -1,0 +1,31 @@
+kind = "web"
+previewPath = "/"
+title = "Email Marketing Platform"
+version = "1.0.0"
+id = "artifacts/email-platform"
+router = "path"
+
+[[integratedSkills]]
+name = "react-vite"
+version = "1.0.0"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 25636
+
+[services.development]
+run = "pnpm --filter @workspace/email-platform run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/email-platform", "run", "build" ]
+publicDir = "artifacts/email-platform/dist/public"
+serve = "static"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "25636"
+BASE_PATH = "/"
