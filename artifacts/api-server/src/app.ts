@@ -37,6 +37,11 @@ connectMongoWithRetry().catch((err) => {
   logger.error({ err }, "MongoDB connection initialization error");
 });
 
+app.get("/", (req, res) => {
+  res.json({ message: "Email Basics Platform API is running. Use /api for routes." });
+});
+
 app.use("/api", router);
 
 export default app;
+
