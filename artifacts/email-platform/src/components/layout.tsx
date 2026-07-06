@@ -39,11 +39,10 @@ export function Layout({ children }: { children: React.ReactNode }) {
     <div className="flex min-h-screen w-full bg-muted/40">
       {/* Sidebar */}
       <aside className="fixed inset-y-0 left-0 z-10 hidden w-64 flex-col border-r bg-background sm:flex">
-        <div className="flex h-14 items-center border-b px-6">
-          <div className="flex items-center gap-2 font-semibold">
-            <Send className="h-5 w-5 text-primary" />
-            <span>Sender</span>
-          </div>
+        <div className="flex h-20 items-center border-b px-6 py-2">
+          <Link href="/" className="flex items-center gap-2 font-semibold">
+            <img src="/logo.png" alt="Worklance Sender AI" className="h-12 max-w-full object-contain" />
+          </Link>
         </div>
         <nav className="flex-1 overflow-y-auto px-4 py-4 space-y-1">
           {NAV_ITEMS.map((item) => {

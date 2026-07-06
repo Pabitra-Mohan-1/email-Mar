@@ -58,12 +58,12 @@ export default function Login() {
     <div className="flex min-h-screen w-full items-center justify-center bg-slate-50 dark:bg-slate-900 px-4">
       <Card className="w-full max-w-md shadow-lg border-slate-200/50 dark:border-slate-800/50">
         <CardHeader className="space-y-1 text-center">
-          <div className="mx-auto bg-primary/10 text-primary p-3 rounded-full w-fit mb-3">
-            <KeyRound className="h-6 w-6" />
+          <div className="mx-auto w-fit mb-4">
+            <img src="/logo.png" alt="Worklance Sender AI" className="h-20 object-contain" />
           </div>
           <CardTitle className="text-2xl font-bold">Sign In</CardTitle>
           <CardDescription>
-            Enter your credentials to access the email platform.
+            Enter your credentials to access Worklance Sender AI.
           </CardDescription>
         </CardHeader>
         <form onSubmit={handleSubmit}>
