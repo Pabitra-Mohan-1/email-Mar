@@ -1,7 +1,7 @@
 import { ImapFlow } from "imapflow";
 import { simpleParser } from "mailparser";
 import { IncomingEmail } from "../models/IncomingEmail";
-import { runAiClassification, summarizeThread, type ThreadMessage } from "./aiService";
+import { runAiClassification, summarizeThread, basicSummary, type ThreadMessage } from "./aiService";
 import { scoreLead, NEGATIVE_THRESHOLD } from "./leadKeywords";
 import { logger } from "./logger"; // Let's check if logger is in lib or models. We will write it or check first.
 
@@ -14,20 +14,50 @@ interface ImapConfig {
   accountId: string;
 }
 
-function classifyEmail(sender: string, subject: string): "reply" | "bounce" | "auto-reply" {
+export function classifyEmail(
+  sender: string,
+  subject: string,
+  body = ""
+): "reply" | "bounce" | "auto-reply" {
   const email = sender.toLowerCase();
   const subj = subject.toLowerCase();
+  const text = body.toLowerCase();
 
-  // Bounces and delivery failures
+  // Bounces and delivery failures — detected by sender, subject, or body.
+  // System-generated delivery reports must never reach the lead pipeline.
+  const bounceSenders = ["mailer-daemon@", "postmaster@"];
+  const bounceSubjects = [
+    "delivery status notification",
+    "undelivered mail",
+    "undeliverable",
+    "returned to sender",
+    "returned mail",
+    "delivery failed",
+    "delivery failure",
+    "failure notice",
+    "mail delivery failed",
+    "mail delivery failure",
+    "message not delivered",
+    "delivery incomplete",
+  ];
+  const bounceBodies = [
+    "this message was created automatically by mail delivery software",
+    "delivery to the following recipient failed",
+    "delivery to the following recipients failed",
+    "your message could not be delivered",
+    "could not be delivered to",
+    "was not delivered to",
+    "the following address(es) failed",
+    "the following recipient(s) could not be reached",
+    "diagnostic-code:",
+    "550 5.1.1",
+    "recipient address rejected",
+  ];
+
   if (
-    email.startsWith("mailer-daemon@") ||
-    email.startsWith("postmaster@") ||
-    subj.includes("delivery status notification") ||
-    subj.includes("undelivered mail") ||
-    subj.includes("returned to sender") ||
-    subj.includes("delivery failed") ||
-    subj.includes("failure notice") ||
-    subj.includes("mail delivery failed")
+    bounceSenders.some((s) => email.startsWith(s)) ||
+    bounceSubjects.some((s) => subj.includes(s)) ||
+    bounceBodies.some((s) => text.includes(s))
   ) {
     return "bounce";
   }
@@ -38,7 +68,8 @@ function classifyEmail(sender: string, subject: string): "reply" | "bounce" | "a
     email.startsWith("no-reply@") ||
     subj.includes("out of office") ||
     subj.includes("auto reply") ||
-    subj.includes("automatic reply")
+    subj.includes("automatic reply") ||
+    subj.includes("autoreply")
   ) {
     return "auto-reply";
   }
@@ -137,7 +168,7 @@ export async function syncImapEmails(config: ImapConfig): Promise<{ syncedCount:
         if (!toAddress) toAddress = config.username;
 
         const subjectStr = parsed.subject || message.envelope?.subject || "";
-        const category = classifyEmail(fromAddress, subjectStr);
+        const category = classifyEmail(fromAddress, subjectStr, parsed.text || "");
 
         let leadStatus = "unclassified";
         let aiReason = "";
@@ -154,6 +185,8 @@ export async function syncImapEmails(config: ImapConfig): Promise<{ syncedCount:
             // Clear opt-out / disinterest — tag directly, skip the LLM.
             leadStatus = "not_interested";
             aiReason = `Keyword classifier: matched ${scored.hits.join(", ")}`;
+            aiDraft = "Thank you for letting us know. We've noted your response and won't reach out further.";
+            aiSummary = basicSummary(subjectStr, parsed.text || "");
           } else {
             try {
               const aiRes = await runAiClassification(

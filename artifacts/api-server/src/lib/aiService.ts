@@ -12,7 +12,7 @@ interface AiResponse {
 const DEFAULT_MODELS: Record<string, string> = {
   openai: "gpt-4o-mini",
   grok: "grok-2-1212",
-  nvidia: "z-ai/glm-5.2",
+  nvidia: "meta/llama-3.3-70b-instruct",
   gemini: "gemini-2.5-flash",
   claude: "claude-3-5-sonnet-latest",
 };
@@ -75,6 +75,22 @@ async function getActiveProvider(): Promise<ProviderContext | null> {
  * text of the model's reply. `jsonMode` requests structured JSON output where
  * the provider supports it.
  */
+// Max time to wait for a provider response. LLM endpoints (especially shared/
+// free tiers) can be slow to send headers; without an explicit signal the
+// request can hang on undici's default header timeout. 90s is generous enough
+// for cold starts while still failing cleanly.
+const AI_TIMEOUT_MS = 90000;
+
+async function fetchWithTimeout(url: string, init: RequestInit): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), AI_TIMEOUT_MS);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function callProvider(
   ctx: ProviderContext,
   systemPrompt: string,
@@ -84,7 +100,7 @@ async function callProvider(
   const { provider, apiKey, model } = ctx;
 
   if (provider === "gemini") {
-    const res = await fetch(
+    const res = await fetchWithTimeout(
       `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
       {
         method: "POST",
@@ -104,7 +120,7 @@ async function callProvider(
 
   if (provider === "openai" || provider === "grok" || provider === "nvidia") {
     const url = OPENAI_COMPATIBLE_URLS[provider];
-    const res = await fetch(url, {
+    const res = await fetchWithTimeout(url, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -125,7 +141,7 @@ async function callProvider(
   }
 
   if (provider === "claude") {
-    const res = await fetch("https://api.anthropic.com/v1/messages", {
+    const res = await fetchWithTimeout("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -148,27 +164,75 @@ async function callProvider(
   return "";
 }
 
+// Produce a readable, non-AI summary from raw email text: strip quoted reply
+// history, signatures and boilerplate, then take the first meaningful sentences.
+// Used as a fallback so the summary column is never empty when the LLM is down.
+export function basicSummary(subject: string, body: string): string {
+  const cleaned = (body || "")
+    .split("\n")
+    .filter((line) => {
+      const l = line.trim();
+      if (!l) return false;
+      if (l.startsWith(">")) return false; // quoted reply
+      if (/^On .+wrote:$/i.test(l)) return false; // "On <date> X wrote:"
+      if (/^(from|sent|to|subject|cc|date):/i.test(l)) return false; // quoted headers
+      if (/^-{2,}|^_{2,}/.test(l)) return false; // signature / separators
+      return true;
+    })
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  const source = cleaned || subject || "";
+  if (!source) return "";
+
+  // First ~2 sentences, capped in length.
+  const sentences = source.split(/(?<=[.!?])\s+/).slice(0, 2).join(" ");
+  const snippet = sentences.length > 280 ? `${sentences.slice(0, 277)}...` : sentences;
+  return snippet;
+}
+
+// When the LLM is unavailable (no provider, error, or timeout), fall back to the
+// lightweight keyword classifier so leads still populate. This keeps "sync ->
+// AI leads" working even when the configured provider is down or rate-limited.
+// `subject`/`body` are used to still produce a basic (non-AI) summary.
+function keywordFallback(keywordHint?: LeadHint, subject = "", body = ""): AiResponse {
+  let leadStatus: AiResponse["leadStatus"] = "neutral";
+  if (keywordHint === "likely_interested") leadStatus = "interested";
+  else if (keywordHint === "likely_negative") leadStatus = "not_interested";
+
+  // Holding reply used when the AI cannot draft a tailored response. Sending a
+  // prompt acknowledgement keeps the prospect engaged until a human follows up.
+  const fallbackDraft =
+    leadStatus === "not_interested"
+      ? "Thank you for letting us know. We've noted your response and won't reach out further."
+      : "Thank you for your message. We are currently reviewing your request and will get back to you shortly.";
+
+  return {
+    leadStatus,
+    aiReason:
+      leadStatus === "neutral"
+        ? "Classified by keyword heuristic (AI unavailable)."
+        : `Classified as ${leadStatus} by keyword heuristic (AI unavailable).`,
+    aiDraft: fallbackDraft,
+    aiSummary: basicSummary(subject, body),
+  };
+}
+
 export async function runAiClassification(
   subject: string,
   body: string,
   keywordHint?: LeadHint
 ): Promise<AiResponse> {
-  const defaultResponse: AiResponse = {
-    leadStatus: "neutral",
-    aiReason: "AI sync fallback",
-    aiDraft: "Thank you for your reply.",
-    aiSummary: "",
-  };
-
   try {
     const ctx = await getActiveProvider();
-    if (!ctx) return defaultResponse;
+    if (!ctx) return keywordFallback(keywordHint, subject, body);
 
     const hintLine = keywordHint ? `Keyword pre-classifier hint: ${keywordHint}\n` : "";
     const prompt = `${hintLine}Email Subject: ${subject}\nEmail Body:\n${body}`;
 
     const jsonText = await callProvider(ctx, SYSTEM_PROMPT, prompt, true);
-    if (!jsonText) return defaultResponse;
+    if (!jsonText) return keywordFallback(keywordHint, subject, body);
 
     // Sometimes models wrap responses in a ```json block even when instructed not to.
     const jsonMatch = jsonText.match(/\{[\s\S]*\}/);
@@ -184,7 +248,7 @@ export async function runAiClassification(
     };
   } catch (error) {
     console.error("AI classification error:", error);
-    return defaultResponse;
+    return keywordFallback(keywordHint, subject, body);
   }
 }
 
@@ -201,11 +265,15 @@ export interface ThreadMessage {
  * back to an existing summary without breaking sync.
  */
 export async function summarizeThread(messages: ThreadMessage[]): Promise<string> {
-  try {
-    if (!messages || messages.length === 0) return "";
+  if (!messages || messages.length === 0) return "";
 
+  // Non-AI fallback: summarize the most recent message in the thread.
+  const latest = messages[messages.length - 1];
+  const fallback = basicSummary(latest.subject, latest.text);
+
+  try {
     const ctx = await getActiveProvider();
-    if (!ctx) return "";
+    if (!ctx) return fallback;
 
     const transcript = messages
       .map((m) => {
@@ -223,10 +291,10 @@ export async function summarizeThread(messages: ThreadMessage[]): Promise<string
       false
     );
 
-    return (summary || "").trim();
+    return (summary || "").trim() || fallback;
   } catch (error) {
     console.error("Thread summary error:", error);
-    return "";
+    return fallback;
   }
 }
 

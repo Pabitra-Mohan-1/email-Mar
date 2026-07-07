@@ -44,10 +44,10 @@ const PROVIDERS = [
   {
     id: "nvidia",
     name: "NVIDIA NIM",
-    description: "GLM 5.2 & others – NIM inference API (OpenAI-compatible)",
+    description: "Llama 3.3 70B & others – NIM inference API (OpenAI-compatible)",
     link: "https://build.nvidia.com/",
     color: "border-t-lime-500",
-    defaultModel: "z-ai/glm-5.2",
+    defaultModel: "meta/llama-3.3-70b-instruct",
   },
   {
     id: "grok",

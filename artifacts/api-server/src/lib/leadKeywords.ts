@@ -120,17 +120,26 @@ export function scoreLead(subject: string, body: string): LeadScore {
 
   let score = 0;
   const hits: string[] = [];
+  let hasNegative = false;
 
   for (const { re, term, weight } of MATCHERS) {
     if (re.test(haystack)) {
       score += weight;
       hits.push(term);
+      if (weight < 0) hasNegative = true;
     }
   }
 
   let hint: LeadHint = "unclear";
-  if (score >= STRONG_THRESHOLD) hint = "likely_interested";
-  else if (score <= NEGATIVE_THRESHOLD) hint = "likely_negative";
+  if (hasNegative && score <= 0) {
+    // An explicit opt-out (unsubscribe / not interested) must never be
+    // overridden by interest keywords appearing elsewhere in the mail.
+    hint = "likely_negative";
+  } else if (score >= STRONG_THRESHOLD) {
+    hint = "likely_interested";
+  } else if (score <= NEGATIVE_THRESHOLD) {
+    hint = "likely_negative";
+  }
 
   return { score, hits, hint };
 }

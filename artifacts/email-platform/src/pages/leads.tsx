@@ -46,6 +46,7 @@ export default function Leads() {
   const [selectedLead, setSelectedLead] = useState<LeadItem | null>(null);
   const [replyBody, setReplyBody] = useState("");
   const [isSendingReply, setIsSendingReply] = useState(false);
+  const [isReclassifying, setIsReclassifying] = useState(false);
 
   // 1. Fetch leads
   const { data: leads = [], isLoading, refetch } = useQuery<LeadItem[]>({
@@ -111,6 +112,26 @@ export default function Leads() {
     }
   };
 
+  const handleReclassify = async () => {
+    setIsReclassifying(true);
+    try {
+      const res = await fetch("/api/inbox/leads/reclassify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Reclassify failed");
+      toast({ title: "AI classification started", description: data.message });
+      // Give the background job a moment, then refresh; user can also hit Refresh Leads.
+      setTimeout(() => queryClient.invalidateQueries({ queryKey: ["leads"] }), 4000);
+    } catch (err: any) {
+      toast({ title: "Reclassify failed", description: err.message, variant: "destructive" });
+    } finally {
+      setIsReclassifying(false);
+    }
+  };
+
   const openLeadDetail = (lead: LeadItem) => {
     setSelectedLead(lead);
     setReplyBody(lead.aiDraft || "");
@@ -143,10 +164,21 @@ export default function Leads() {
             Review and follow up with leads automatically classified as "Interested" by AI.
           </p>
         </div>
-        <Button variant="outline" onClick={() => refetch()} className="gap-2">
-          <RefreshCw className="h-4 w-4" />
-          Refresh Leads
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="default"
+            onClick={handleReclassify}
+            disabled={isReclassifying}
+            className="gap-2"
+          >
+            <Sparkles className={`h-4 w-4 ${isReclassifying ? "animate-spin" : ""}`} />
+            {isReclassifying ? "Analyzing..." : "Run AI Classification"}
+          </Button>
+          <Button variant="outline" onClick={() => refetch()} className="gap-2">
+            <RefreshCw className="h-4 w-4" />
+            Refresh Leads
+          </Button>
+        </div>
       </div>
 
       <div className="border rounded-md bg-card shadow-sm">
@@ -155,7 +187,7 @@ export default function Leads() {
             <TableRow>
               <TableHead>Prospect</TableHead>
               <TableHead>Lead From</TableHead>
-              <TableHead className="max-w-[300px]">AI Classification Reason</TableHead>
+              <TableHead className="max-w-[340px]">AI Summary</TableHead>
               <TableHead>Received</TableHead>
               <TableHead>Status</TableHead>
               <TableHead className="text-right">Actions</TableHead>
@@ -193,18 +225,15 @@ export default function Leads() {
                       <span className="text-[10px] text-muted-foreground">{lead.accountId?.username || lead.toAddress}</span>
                     </div>
                   </TableCell>
-                  <TableCell className="max-w-[320px]">
-                    <div className="space-y-1.5">
-                      <span className="text-xs italic text-foreground/80 leading-relaxed block">
-                        {lead.aiReason || "No explanation provided"}
-                      </span>
-                      {lead.aiSummary && (
-                        <div className="flex items-start gap-1 text-[11px] text-muted-foreground leading-snug">
-                          <MessageSquare className="h-3 w-3 mt-0.5 shrink-0 text-primary/70" />
-                          <span className="line-clamp-3">{lead.aiSummary}</span>
-                        </div>
-                      )}
-                    </div>
+                  <TableCell className="max-w-[340px]">
+                    {lead.aiSummary ? (
+                      <div className="flex items-start gap-1 text-[11px] text-muted-foreground leading-snug">
+                        <MessageSquare className="h-3 w-3 mt-0.5 shrink-0 text-primary/70" />
+                        <span className="line-clamp-3">{lead.aiSummary}</span>
+                      </div>
+                    ) : (
+                      <span className="text-[11px] text-muted-foreground/50 italic">Pending…</span>
+                    )}
                   </TableCell>
                   <TableCell className="text-xs text-muted-foreground">
                     {format(new Date(lead.date), "MMM d, yyyy h:mm a")}

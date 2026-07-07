@@ -2,6 +2,7 @@ import { Router, type IRouter } from "express";
 import { AiConfig } from "../models/AiConfig";
 import { IncomingEmail } from "../models/IncomingEmail";
 import { testAiConnection } from "../lib/aiService";
+import { reclassifyStoredEmails } from "../lib/reclassify";
 
 const router: IRouter = Router();
 
@@ -152,6 +153,36 @@ router.patch("/inbox/leads/:id/status", async (req, res): Promise<void> => {
     res.json(updated);
   } catch (error: any) {
     res.status(500).json({ error: error.message || "Failed to update lead status" });
+  }
+});
+
+// 7. Reclassify already-stored replies (backfill AI leads/summaries).
+// Body: { all?: boolean } — when all=true, re-run on every reply, not just
+// those still unclassified.
+router.post("/inbox/leads/reclassify", async (req, res): Promise<void> => {
+  try {
+    // No active-provider guard: when AI is unconfigured/unavailable the pipeline
+    // falls back to the lightweight keyword classifier, so leads still populate.
+    const onlyUnprocessed = req.body?.all !== true;
+
+    // Bulk AI classification can take a long time (many emails, slow providers),
+    // so run it in the background and return immediately. Progress is persisted
+    // per-email, so the Leads table fills in as it goes (refresh to see updates).
+    reclassifyStoredEmails(onlyUnprocessed)
+      .then((r) =>
+        console.log(
+          `Reclassify done: ${r.processed} processed, ${r.interested} interested, ${r.summarized} summaries.`
+        )
+      )
+      .catch((err) => console.error("Background reclassify failed:", err));
+
+    res.json({
+      success: true,
+      message: "AI classification started in the background. Refresh Leads shortly to see results.",
+    });
+  } catch (error: any) {
+    console.error("Reclassify failed:", error);
+    res.status(500).json({ error: error.message || "Failed to reclassify emails" });
   }
 });
 
