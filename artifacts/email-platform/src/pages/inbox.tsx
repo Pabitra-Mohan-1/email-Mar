@@ -74,6 +74,20 @@ export default function Inbox() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
+  // Deep-link support: when arriving from the Leads page (/inbox?email=addr),
+  // pre-select that sender's conversation. Category is forced to "reply" so the
+  // lead's thread is visible under the default filter.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const emailParam = params.get("email");
+    if (emailParam) {
+      const addr = emailParam.toLowerCase();
+      setSelectedSender(addr);
+      setSelectedSenderName(null);
+      setCategoryFilter("reply");
+    }
+  }, []);
+
   // 1. Fetch SMTP Accounts (to let the user choose which email account inbox to view)
   const { data: smtpAccounts = [] } = useListSmtpAccounts();
   const imapAccounts = smtpAccounts.filter(acc => acc.isImapEnabled !== false);

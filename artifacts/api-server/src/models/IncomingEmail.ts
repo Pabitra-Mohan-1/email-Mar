@@ -21,6 +21,8 @@ const incomingEmailSchema = new mongoose.Schema(
     },
     aiReason: { type: String, default: "" },
     aiDraft: { type: String, default: "" },
+    aiSummary: { type: String, default: "" },
+    keywordScore: { type: Number, default: 0 },
     actionStatus: {
       type: String,
       enum: ["pending", "replied", "ignored", "follow_up"],

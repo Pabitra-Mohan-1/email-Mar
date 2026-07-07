@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useLocation } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { 
   Sparkles, Mail, MessageSquare, ChevronRight, User, Calendar, 
@@ -29,6 +30,7 @@ interface LeadItem {
   leadStatus: string;
   aiReason: string;
   aiDraft: string;
+  aiSummary: string;
   actionStatus: string;
   accountId: {
     _id: string;
@@ -40,6 +42,7 @@ interface LeadItem {
 export default function Leads() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const [, setLocation] = useLocation();
   const [selectedLead, setSelectedLead] = useState<LeadItem | null>(null);
   const [replyBody, setReplyBody] = useState("");
   const [isSendingReply, setIsSendingReply] = useState(false);
@@ -190,10 +193,18 @@ export default function Leads() {
                       <span className="text-[10px] text-muted-foreground">{lead.accountId?.username || lead.toAddress}</span>
                     </div>
                   </TableCell>
-                  <TableCell className="max-w-[300px]">
-                    <span className="text-xs italic text-foreground/80 leading-relaxed">
-                      {lead.aiReason || "No explanation provided"}
-                    </span>
+                  <TableCell className="max-w-[320px]">
+                    <div className="space-y-1.5">
+                      <span className="text-xs italic text-foreground/80 leading-relaxed block">
+                        {lead.aiReason || "No explanation provided"}
+                      </span>
+                      {lead.aiSummary && (
+                        <div className="flex items-start gap-1 text-[11px] text-muted-foreground leading-snug">
+                          <MessageSquare className="h-3 w-3 mt-0.5 shrink-0 text-primary/70" />
+                          <span className="line-clamp-3">{lead.aiSummary}</span>
+                        </div>
+                      )}
+                    </div>
                   </TableCell>
                   <TableCell className="text-xs text-muted-foreground">
                     {format(new Date(lead.date), "MMM d, yyyy h:mm a")}
@@ -211,15 +222,29 @@ export default function Leads() {
                     </select>
                   </TableCell>
                   <TableCell className="text-right">
-                    <Button 
-                      variant="outline" 
-                      size="sm" 
-                      onClick={() => openLeadDetail(lead)}
-                      className="gap-1.5"
-                    >
-                      <Mail className="h-3.5 w-3.5" />
-                      View & Reply
-                    </Button>
+                    <div className="flex items-center justify-end gap-2">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() =>
+                          setLocation(`/inbox?email=${encodeURIComponent(lead.fromAddress)}`)
+                        }
+                        className="gap-1.5"
+                        title="Open this conversation in the Inbox"
+                      >
+                        <ExternalLink className="h-3.5 w-3.5" />
+                        Inbox mail
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => openLeadDetail(lead)}
+                        className="gap-1.5"
+                      >
+                        <Mail className="h-3.5 w-3.5" />
+                        View & Reply
+                      </Button>
+                    </div>
                   </TableCell>
                 </TableRow>
               ))
@@ -257,6 +282,19 @@ export default function Leads() {
                   </div>
                 </CardContent>
               </Card>
+
+              {/* AI Conversation Summary */}
+              {selectedLead.aiSummary && (
+                <div className="p-3 border rounded-md bg-primary/5 border-primary/20 space-y-1.5">
+                  <div className="text-xs font-bold text-muted-foreground flex items-center gap-1">
+                    <MessageSquare className="h-4 w-4 text-primary" />
+                    AI Conversation Summary
+                  </div>
+                  <p className="text-xs leading-relaxed text-foreground/90">
+                    {selectedLead.aiSummary}
+                  </p>
+                </div>
+              )}
 
               {/* AI Classification Info */}
               <div className="p-3 border rounded-md bg-muted/30 space-y-1.5">

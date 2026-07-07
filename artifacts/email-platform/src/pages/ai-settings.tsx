@@ -12,6 +12,7 @@ import { Badge } from "@/components/ui/badge";
 interface ProviderConfig {
   provider: string;
   apiKey: string;
+  model: string;
   isActive: boolean;
 }
 
@@ -22,6 +23,7 @@ const PROVIDERS = [
     description: "Gemini 2.5 Flash – Recommended for workspace AI",
     link: "https://aistudio.google.com/",
     color: "border-t-blue-500",
+    defaultModel: "gemini-2.5-flash",
   },
   {
     id: "openai",
@@ -29,6 +31,7 @@ const PROVIDERS = [
     description: "GPT-4o, GPT-4o Mini – Chat completions API",
     link: "https://platform.openai.com/api-keys",
     color: "border-t-emerald-500",
+    defaultModel: "gpt-4o-mini",
   },
   {
     id: "claude",
@@ -36,13 +39,15 @@ const PROVIDERS = [
     description: "Claude Sonnet 4, Opus 4 – Messages API",
     link: "https://console.anthropic.com/",
     color: "border-t-orange-500",
+    defaultModel: "claude-3-5-sonnet-latest",
   },
   {
     id: "nvidia",
     name: "NVIDIA NIM",
-    description: "Nemotron Ultra 550B – NIM inference API",
+    description: "GLM 5.2 & others – NIM inference API (OpenAI-compatible)",
     link: "https://build.nvidia.com/",
     color: "border-t-lime-500",
+    defaultModel: "z-ai/glm-5.2",
   },
   {
     id: "grok",
@@ -50,6 +55,7 @@ const PROVIDERS = [
     description: "Grok 4.3 – Chat completions API",
     link: "https://console.x.ai/",
     color: "border-t-purple-500",
+    defaultModel: "grok-2-1212",
   },
 ];
 
@@ -57,6 +63,7 @@ export default function AiSettings() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [keysInput, setKeysInput] = useState<Record<string, string>>({});
+  const [modelInput, setModelInput] = useState<Record<string, string>>({});
   const [showKeys, setShowKeys] = useState<Record<string, boolean>>({});
   const [testingProvider, setTestingProvider] = useState<string | null>(null);
 
@@ -72,11 +79,11 @@ export default function AiSettings() {
 
   // Save API Key Mutation
   const saveKeyMutation = useMutation({
-    mutationFn: async ({ provider, apiKey }: { provider: string; apiKey: string }) => {
+    mutationFn: async ({ provider, apiKey, model }: { provider: string; apiKey: string; model: string }) => {
       const res = await fetch("/api/ai/config", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ provider, apiKey }),
+        body: JSON.stringify({ provider, apiKey, model }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || "Failed to save API key");
@@ -167,6 +174,7 @@ export default function AiSettings() {
           const hasKeySaved = !!config?.apiKey;
           const isActive = !!config?.isActive;
           const currentInput = keysInput[provider.id] ?? "";
+          const currentModel = modelInput[provider.id] ?? (config?.model || "");
           const isShow = !!showKeys[provider.id];
 
           return (
@@ -220,12 +228,36 @@ export default function AiSettings() {
                     </div>
                     <Button
                       size="sm"
-                      onClick={() => saveKeyMutation.mutate({ provider: provider.id, apiKey: currentInput })}
-                      disabled={!currentInput}
+                      onClick={() =>
+                        saveKeyMutation.mutate({
+                          provider: provider.id,
+                          apiKey: currentInput,
+                          model: currentModel,
+                        })
+                      }
+                      disabled={!currentInput && !hasKeySaved}
                     >
                       <Save className="h-4 w-4 mr-1.5" /> Save
                     </Button>
                   </div>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-xs font-semibold text-muted-foreground flex items-center gap-1">
+                    <Sparkles className="h-3 w-3" /> Model
+                  </label>
+                  <Input
+                    type="text"
+                    placeholder={`Default: ${provider.defaultModel}`}
+                    value={currentModel}
+                    onChange={(e) =>
+                      setModelInput((prev) => ({ ...prev, [provider.id]: e.target.value }))
+                    }
+                    className="h-9 text-sm font-mono"
+                  />
+                  <p className="text-[10px] text-muted-foreground">
+                    Leave blank to use the default. Click Save to apply the model.
+                  </p>
                 </div>
 
                 <div className="flex items-center justify-between pt-2 border-t text-xs">

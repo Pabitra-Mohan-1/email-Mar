@@ -1,7 +1,8 @@
 import { ImapFlow } from "imapflow";
 import { simpleParser } from "mailparser";
 import { IncomingEmail } from "../models/IncomingEmail";
-import { runAiClassification } from "./aiService";
+import { runAiClassification, summarizeThread, type ThreadMessage } from "./aiService";
+import { scoreLead, NEGATIVE_THRESHOLD } from "./leadKeywords";
 import { logger } from "./logger"; // Let's check if logger is in lib or models. We will write it or check first.
 
 interface ImapConfig {
@@ -62,6 +63,9 @@ export async function syncImapEmails(config: ImapConfig): Promise<{ syncedCount:
   await client.connect();
 
   let syncedCount = 0;
+  // Track sender addresses that received new lead-relevant mail so we can
+  // regenerate their conversation summaries after ingestion.
+  const sendersToSummarize = new Set<string>();
   // Acquire a lock for the INBOX folder
   const lock = await client.getMailboxLock("INBOX");
   try {
@@ -80,8 +84,14 @@ export async function syncImapEmails(config: ImapConfig): Promise<{ syncedCount:
       // First sync: to avoid fetching thousands of emails, we only fetch the last 50 (sequence-based query)
       const status = await client.status("INBOX", { messages: true });
       const totalMessages = status.messages || 0;
-      const startSeq = Math.max(1, totalMessages - 49);
-      messages = client.fetch(`${startSeq}:*`, { envelope: true, source: true });
+      // An empty mailbox has no valid message set — `FETCH 1:*` would be
+      // rejected by the server as an "Invalid messageset". Skip fetching.
+      if (totalMessages === 0) {
+        messages = [];
+      } else {
+        const startSeq = Math.max(1, totalMessages - 49);
+        messages = client.fetch(`${startSeq}:*`, { envelope: true, source: true });
+      }
     }
 
     for await (const message of messages) {
@@ -132,15 +142,32 @@ export async function syncImapEmails(config: ImapConfig): Promise<{ syncedCount:
         let leadStatus = "unclassified";
         let aiReason = "";
         let aiDraft = "";
+        let aiSummary = "";
+        let keywordScore = 0;
 
         if (category === "reply") {
-          try {
-            const aiRes = await runAiClassification(subjectStr, parsed.text || "");
-            leadStatus = aiRes.leadStatus;
-            aiReason = aiRes.aiReason;
-            aiDraft = aiRes.aiDraft;
-          } catch (aiErr) {
-            console.error("AI classification failed during IMAP sync:", aiErr);
+          // Cheap keyword pre-classifier decides whether to spend an LLM call.
+          const scored = scoreLead(subjectStr, parsed.text || "");
+          keywordScore = scored.score;
+
+          if (scored.score <= NEGATIVE_THRESHOLD) {
+            // Clear opt-out / disinterest — tag directly, skip the LLM.
+            leadStatus = "not_interested";
+            aiReason = `Keyword classifier: matched ${scored.hits.join(", ")}`;
+          } else {
+            try {
+              const aiRes = await runAiClassification(
+                subjectStr,
+                parsed.text || "",
+                scored.hint
+              );
+              leadStatus = aiRes.leadStatus;
+              aiReason = aiRes.aiReason;
+              aiDraft = aiRes.aiDraft;
+              aiSummary = aiRes.aiSummary;
+            } catch (aiErr) {
+              console.error("AI classification failed during IMAP sync:", aiErr);
+            }
           }
         }
 
@@ -160,10 +187,18 @@ export async function syncImapEmails(config: ImapConfig): Promise<{ syncedCount:
           leadStatus,
           aiReason,
           aiDraft,
+          aiSummary,
+          keywordScore,
           actionStatus: "pending",
         });
 
         syncedCount++;
+
+        // Queue a conversation-summary refresh for this sender (only for genuine
+        // replies — bounces/auto-replies are not conversations).
+        if (category === "reply") {
+          sendersToSummarize.add(fromAddress.toLowerCase());
+        }
       } catch (err) {
         console.error(`Failed to parse email message UID ${message.uid}:`, err);
       }
@@ -172,6 +207,40 @@ export async function syncImapEmails(config: ImapConfig): Promise<{ syncedCount:
     // Release lock and close/log out
     lock.release();
     await client.logout();
+  }
+
+  // Regenerate conversation summaries for senders with new mail, so each lead's
+  // aiSummary reflects the full latest context. This is best-effort: any failure
+  // here must never break the sync (the emails are already persisted).
+  for (const senderAddress of sendersToSummarize) {
+    try {
+      const thread = await IncomingEmail.find({
+        accountId: config.accountId,
+        fromAddress: senderAddress,
+      }).sort({ date: 1 });
+
+      if (thread.length === 0) continue;
+
+      const messages: ThreadMessage[] = thread.map((m: any) => ({
+        // Mail addressed to our own account is inbound (from the prospect);
+        // we do not persist our outbound replies, so all stored mail is "them".
+        fromMe: false,
+        subject: m.subject || "",
+        text: m.text || "",
+        date: m.date,
+      }));
+
+      const summary = await summarizeThread(messages);
+      if (!summary) continue;
+
+      // Attach the running summary to the latest message in the thread — that is
+      // the document surfaced in the Leads table.
+      const latest = thread[thread.length - 1];
+      latest.aiSummary = summary;
+      await latest.save();
+    } catch (summaryErr) {
+      console.error(`Thread summary failed for ${senderAddress}:`, summaryErr);
+    }
   }
 
   return { syncedCount };

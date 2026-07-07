@@ -9,6 +9,7 @@ const aiConfigSchema = new mongoose.Schema(
       unique: true,
     },
     apiKey: { type: String, required: true },
+    model: { type: String, default: "" },
     isActive: { type: Boolean, default: false },
   },
   { timestamps: true }

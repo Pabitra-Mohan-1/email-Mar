@@ -14,6 +14,7 @@ router.get("/ai/config", async (req, res): Promise<void> => {
     const masked = configs.map((c) => ({
       provider: c.provider,
       apiKey: c.apiKey ? `${c.apiKey.slice(0, 6)}...${c.apiKey.slice(-4)}` : "",
+      model: c.model || "",
       isActive: c.isActive,
     }));
 
@@ -26,21 +27,35 @@ router.get("/ai/config", async (req, res): Promise<void> => {
 // 2. Save/Update API Key
 router.post("/ai/config", async (req, res): Promise<void> => {
   try {
-    const { provider, apiKey } = req.body;
-    if (!provider || !apiKey) {
-      res.status(400).json({ error: "Provider and apiKey are required" });
+    const { provider, apiKey, model } = req.body;
+    if (!provider) {
+      res.status(400).json({ error: "Provider is required" });
       return;
     }
 
+    const existing = await AiConfig.findOne({ provider });
+
+    // apiKey is required only when no key has been saved yet — this lets users
+    // update just the model on an already-configured provider.
+    if (!apiKey && !existing?.apiKey) {
+      res.status(400).json({ error: "apiKey is required" });
+      return;
+    }
+
+    const update: Record<string, unknown> = {};
+    if (apiKey) update.apiKey = apiKey;
+    if (typeof model === "string") update.model = model.trim();
+
     const updated = await AiConfig.findOneAndUpdate(
       { provider },
-      { apiKey },
+      update,
       { new: true, upsert: true }
     );
 
     res.json({
       success: true,
       provider: updated.provider,
+      model: updated.model || "",
       isActive: updated.isActive,
     });
   } catch (error: any) {
