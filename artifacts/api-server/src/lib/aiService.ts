@@ -34,7 +34,7 @@ Analyze the incoming email reply and perform three tasks:
    - If "interested", write a warm, professional, and action-oriented follow-up to book a call or answer their query.
    - If "not_interested", write a polite, concise acknowledgment respecting their request (e.g. "Thank you for letting us know. We have removed you from our list.").
    - If "neutral", write a helpful, professional response to clarify their request.
-3. Summarize the email: a neutral 2-3 sentence summary of what the sender wants and the current state of the conversation.
+3. Summarize the email: ONE short line (max ~25 words, one or two sentences) capturing what the sender wants, so an admin instantly gets the context. Be concise and factual — no filler.
 
 A lightweight keyword pre-classifier may provide a hint. Treat it as a signal, not a rule; your reading of the email content takes priority.
 
@@ -43,12 +43,13 @@ You MUST respond ONLY with a valid JSON object in the following format. Do not i
   "leadStatus": "interested" | "not_interested" | "neutral",
   "aiReason": "1 sentence explaining the classification",
   "aiDraft": "The drafted email response",
-  "aiSummary": "2-3 sentence neutral summary of the email"
+  "aiSummary": "one short line (max ~25 words) summarizing the email"
 }`;
 
 const THREAD_SUMMARY_PROMPT = `You are an AI Email Assistant. You will receive a chronological transcript of an email conversation between our team and a prospect.
-Write a concise, up-to-date 2-3 sentence summary of the conversation that reflects the LATEST context: what the prospect wants, what has been discussed, and the current state / next step.
-Respond with ONLY the summary text. No preamble, no markdown, no JSON.`;
+Write a ONE-LINE summary (STRICTLY 25 words or fewer, a single sentence) reflecting the LATEST context: what the prospect wants and the next step. This is a quick-glance line for an admin scanning a table.
+Do NOT write multiple sentences. Do NOT exceed 25 words.
+Respond with ONLY the summary sentence. No preamble, no markdown, no JSON, no line breaks.`;
 
 interface ProviderContext {
   provider: string;
@@ -75,20 +76,40 @@ async function getActiveProvider(): Promise<ProviderContext | null> {
  * text of the model's reply. `jsonMode` requests structured JSON output where
  * the provider supports it.
  */
-// Max time to wait for a provider response. LLM endpoints (especially shared/
-// free tiers) can be slow to send headers; without an explicit signal the
-// request can hang on undici's default header timeout. 90s is generous enough
-// for cold starts while still failing cleanly.
-const AI_TIMEOUT_MS = 90000;
+// Max time to wait for a provider response. Large reasoning models (e.g.
+// z-ai/glm-5.2 on NVIDIA) can take a couple of minutes to respond on a cold
+// start; without an explicit signal the request hangs on undici's default
+// header timeout. 180s covers cold starts while still failing cleanly.
+const AI_TIMEOUT_MS = 180000;
 
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+// Fetch with a timeout and automatic retry on rate-limit / transient errors
+// (429 Too Many Requests, 503 Service Unavailable). Free-tier LLMs (e.g. the
+// Gemini free tier at ~15 req/min) return 429 under bursts; backing off and
+// retrying keeps bulk classification/summarization reliable.
 async function fetchWithTimeout(url: string, init: RequestInit): Promise<Response> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), AI_TIMEOUT_MS);
-  try {
-    return await fetch(url, { ...init, signal: controller.signal });
-  } finally {
-    clearTimeout(timer);
+  const maxAttempts = 4;
+  let lastRes: Response | null = null;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), AI_TIMEOUT_MS);
+    try {
+      const res = await fetch(url, { ...init, signal: controller.signal });
+      if ((res.status === 429 || res.status === 503) && attempt < maxAttempts) {
+        lastRes = res;
+        // Exponential backoff: 4s, 8s, 16s.
+        await sleep(4000 * 2 ** (attempt - 1));
+        continue;
+      }
+      return res;
+    } finally {
+      clearTimeout(timer);
+    }
   }
+
+  return lastRes as Response;
 }
 
 async function callProvider(
@@ -132,6 +153,11 @@ async function callProvider(
           { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt },
         ],
+        // Cap output so slow reasoning models (e.g. z-ai/glm-5.2) finish quickly —
+        // classification/summary responses are small, they don't need thousands
+        // of tokens, and a low cap keeps non-streaming latency well under timeout.
+        max_tokens: 700,
+        temperature: 0.2,
         ...(jsonMode ? { response_format: { type: "json_object" } } : {}),
       }),
     });
@@ -164,19 +190,45 @@ async function callProvider(
   return "";
 }
 
+// Guarantee a summary is a single short line for the leads table, regardless of
+// what the model returned. Keeps the first sentence and caps at ~28 words.
+export function enforceOneLine(summary: string): string {
+  const flat = (summary || "").replace(/\s+/g, " ").trim();
+  if (!flat) return "";
+  const firstSentence = flat.split(/(?<=[.!?])\s+/)[0] || flat;
+  const words = firstSentence.split(" ");
+  const capped = words.length > 28 ? `${words.slice(0, 28).join(" ")}…` : firstSentence;
+  return capped;
+}
+
 // Produce a readable, non-AI summary from raw email text: strip quoted reply
 // history, signatures and boilerplate, then take the first meaningful sentences.
 // Used as a fallback so the summary column is never empty when the LLM is down.
 export function basicSummary(subject: string, body: string): string {
-  const cleaned = (body || "")
+  // Cut off everything from the start of quoted history: "On <date> X wrote:",
+  // "-----Original Message-----", or the first quoted line. This handles inline
+  // quotes that aren't on their own line.
+  let head = body || "";
+  const cutMarkers = [
+    /On [\s\S]{0,120}?wrote:/i, // "On <date> <name> wrote:" (may span lines)
+    /-----\s*Original Message\s*-----/i,
+    /_{5,}/,
+    /From:[\s\S]*?Sent:/i,
+  ];
+  for (const marker of cutMarkers) {
+    const idx = head.search(marker);
+    if (idx > 0) head = head.slice(0, idx);
+  }
+
+  const cleaned = head
     .split("\n")
     .filter((line) => {
       const l = line.trim();
       if (!l) return false;
       if (l.startsWith(">")) return false; // quoted reply
-      if (/^On .+wrote:$/i.test(l)) return false; // "On <date> X wrote:"
       if (/^(from|sent|to|subject|cc|date):/i.test(l)) return false; // quoted headers
       if (/^-{2,}|^_{2,}/.test(l)) return false; // signature / separators
+      if (/^##.*please type your reply/i.test(l)) return false; // ticketing boilerplate
       return true;
     })
     .join(" ")
@@ -186,10 +238,8 @@ export function basicSummary(subject: string, body: string): string {
   const source = cleaned || subject || "";
   if (!source) return "";
 
-  // First ~2 sentences, capped in length.
-  const sentences = source.split(/(?<=[.!?])\s+/).slice(0, 2).join(" ");
-  const snippet = sentences.length > 280 ? `${sentences.slice(0, 277)}...` : sentences;
-  return snippet;
+  // One short line for quick admin context.
+  return enforceOneLine(source);
 }
 
 // When the LLM is unavailable (no provider, error, or timeout), fall back to the
@@ -244,7 +294,7 @@ export async function runAiClassification(
       leadStatus: parsed.leadStatus || "neutral",
       aiReason: parsed.aiReason || "AI Classified",
       aiDraft: parsed.aiDraft || "",
-      aiSummary: parsed.aiSummary || "",
+      aiSummary: enforceOneLine(parsed.aiSummary || ""),
     };
   } catch (error) {
     console.error("AI classification error:", error);
@@ -291,7 +341,7 @@ export async function summarizeThread(messages: ThreadMessage[]): Promise<string
       false
     );
 
-    return (summary || "").trim() || fallback;
+    return enforceOneLine(summary) || fallback;
   } catch (error) {
     console.error("Thread summary error:", error);
     return fallback;

@@ -9,6 +9,8 @@ interface ReclassifyResult {
   summarized: number;
 }
 
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
 /**
  * Re-run keyword + AI classification and conversation summaries on already-stored
  * reply emails. This is used to backfill mail that was synced before an AI
@@ -87,6 +89,9 @@ export async function reclassifyStoredEmails(
       if (email.fromAddress && email.accountId) {
         sendersToSummarize.set(email.fromAddress, email.accountId.toString());
       }
+
+      // Pace calls to stay under free-tier rate limits (only after an LLM call).
+      if (scored.score > NEGATIVE_THRESHOLD) await sleep(1500);
     } catch (err) {
       console.error(`Reclassify failed for email ${email._id}:`, err);
     }
@@ -113,6 +118,7 @@ export async function reclassifyStoredEmails(
       latest.aiSummary = summary;
       await latest.save();
       summarized++;
+      await sleep(1500);
     } catch (err) {
       console.error(`Reclassify thread summary failed for ${fromAddress}:`, err);
     }

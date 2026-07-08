@@ -62,14 +62,95 @@ export function classifyEmail(
     return "bounce";
   }
 
-  // Common auto-replies
+  // System-generated / automated mail (auto-replies, notifications, ticketing
+  // systems, no-reply senders). None of this should ever become a lead.
+  const autoLocalParts = [
+    "noreply",
+    "no-reply",
+    "no_reply",
+    "donotreply",
+    "do-not-reply",
+    "do_not_reply",
+    "notifications",
+    "notification",
+    "notify",
+    "mailer",
+    "automated",
+    "auto-confirm",
+    "bounce",
+    "system",
+    "daemon",
+    "support",
+    "helpdesk",
+    "tickets",
+    "ticket",
+    "alerts",
+    "alert",
+    "newsletter",
+  ];
+  const localPart = email.split("@")[0] || "";
+  const domain = email.split("@")[1] || "";
+
+  const autoDomains = [
+    "zendesk.com",
+    "freshdesk.com",
+    "freshservice.com",
+    "intercom.io",
+    "helpscout.net",
+    "salesforce.com",
+    "hubspot.com",
+    "service-now.com",
+    "atlassian.net",
+    "sendgrid.net",
+    "mailgun.org",
+    "amazonses.com",
+    "bounces.",
+    "mailer.",
+  ];
+
+  const autoSubjects = [
+    "out of office",
+    "auto reply",
+    "auto-reply",
+    "automatic reply",
+    "autoreply",
+    "automated response",
+    "do not reply",
+    "undelivered",
+    "[ticket",
+    "ticket #",
+    "case #",
+    "request #",
+    "your request",
+    "we received your",
+    "we have received your",
+    "confirmation",
+    "receipt",
+    "no-reply",
+  ];
+
+  const autoBodies = [
+    "please type your reply above this line",
+    "do not reply to this email",
+    "please do not reply to this",
+    "this is an automated message",
+    "this is an automatically generated",
+    "this email was sent automatically",
+    "automatically generated",
+    "unsubscribe from this",
+    "this mailbox is not monitored",
+    "we have successfully received your request",
+    "your ticket",
+    "your request has been received",
+    "your request (",
+    "ticket id",
+  ];
+
   if (
-    email.startsWith("noreply@") ||
-    email.startsWith("no-reply@") ||
-    subj.includes("out of office") ||
-    subj.includes("auto reply") ||
-    subj.includes("automatic reply") ||
-    subj.includes("autoreply")
+    autoLocalParts.some((p) => localPart === p || localPart.startsWith(`${p}-`) || localPart.startsWith(`${p}.`) || localPart.startsWith(`${p}+`)) ||
+    autoDomains.some((d) => domain.includes(d)) ||
+    autoSubjects.some((s) => subj.includes(s)) ||
+    autoBodies.some((s) => text.includes(s))
   ) {
     return "auto-reply";
   }
