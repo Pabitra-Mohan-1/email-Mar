@@ -10,7 +10,7 @@ import {
 } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
-import { format } from "date-fns";
+import { formatLogTimeIST } from "@/lib/datetime";
 import { FileText, ChevronLeft, ChevronRight, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
@@ -120,7 +120,7 @@ export default function Logs() {
               logsData?.logs.map((log) => (
                 <TableRow key={log.id}>
                   <TableCell className="text-sm whitespace-nowrap">
-                    {format(new Date(log.createdAt), "MMM d, h:mm:ss a")}
+                    {formatLogTimeIST(log.createdAt)}
                   </TableCell>
                   <TableCell className="font-medium">{log.recipient}</TableCell>
                   <TableCell>{log.campaignName || <span className="text-muted-foreground italic">Direct</span>}</TableCell>

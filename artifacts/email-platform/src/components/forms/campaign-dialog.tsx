@@ -22,6 +22,7 @@ import {
 } from "@workspace/api-client-react";
 import { useToast } from "@/hooks/use-toast";
 import { useQueryClient } from "@tanstack/react-query";
+import { isoToISTInput, istInputToISO } from "@/lib/datetime";
 
 const campaignSchema = z.object({
   name: z.string().min(1, "Name is required"),
@@ -38,16 +39,6 @@ const campaignSchema = z.object({
 });
 
 type CampaignFormValues = z.infer<typeof campaignSchema>;
-
-// Convert a stored ISO timestamp (UTC) into the local "YYYY-MM-DDTHH:mm" value
-// that a <input type="datetime-local"> expects, so editing preserves the exact
-// instant the user originally scheduled instead of drifting by the UTC offset.
-function toLocalDatetimeInput(iso: string): string {
-  const d = new Date(iso);
-  if (isNaN(d.getTime())) return "";
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-}
 
 interface CampaignDialogProps {
   open: boolean;
@@ -128,7 +119,7 @@ export function CampaignDialog({ open, onOpenChange, campaign }: CampaignDialogP
           smtpAccountId: campaign.smtpAccountId || "",
           templateId: campaign.templateId || "",
           groupId: campaign.groupId || "",
-          scheduledAt: campaign.scheduledAt ? toLocalDatetimeInput(campaign.scheduledAt) : "",
+          scheduledAt: campaign.scheduledAt ? isoToISTInput(campaign.scheduledAt) : "",
           mailsPerBatch: campaign.mailsPerBatch ?? 10,
           intervalMinutes: campaign.intervalMinutes ?? 1,
           customHtml: campaign.customHtml || "",
@@ -157,16 +148,10 @@ export function CampaignDialog({ open, onOpenChange, campaign }: CampaignDialogP
       if (!payload.smtpAccountId) payload.smtpAccountId = null;
       if (!payload.templateId) payload.templateId = null;
       if (!payload.groupId) payload.groupId = null;
-      // The datetime-local input yields a timezone-less local string
-      // (e.g. "2026-07-15T14:30"). Convert it to a full UTC ISO string in the
-      // browser (which knows the user's timezone) so the server stores the exact
-      // instant the user picked, regardless of the server's own timezone.
-      if (!payload.scheduledAt) {
-        payload.scheduledAt = null;
-      } else {
-        const parsedDate = new Date(payload.scheduledAt);
-        payload.scheduledAt = isNaN(parsedDate.getTime()) ? null : parsedDate.toISOString();
-      }
+      // The datetime-local input yields a timezone-less string (e.g.
+      // "2026-07-15T14:30"). We interpret it as IST and convert to a UTC ISO
+      // string, so the stored instant is correct on any browser timezone.
+      payload.scheduledAt = payload.scheduledAt ? istInputToISO(payload.scheduledAt) : null;
 
       if (campaign) {
         await updateCampaign.mutateAsync({ id: campaign.id, data: payload });
@@ -301,7 +286,7 @@ export function CampaignDialog({ open, onOpenChange, campaign }: CampaignDialogP
               {errors.groupId && <p className="text-sm text-destructive">{errors.groupId.message}</p>}
             </div>
             <div className="space-y-2">
-              <Label htmlFor="scheduledAt">Schedule For (Optional)</Label>
+              <Label htmlFor="scheduledAt">Schedule For (IST, Optional)</Label>
               <Input id="scheduledAt" type="datetime-local" {...register("scheduledAt")} />
             </div>
           </div>

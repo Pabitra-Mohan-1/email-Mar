@@ -8,7 +8,7 @@ import { Send, Trash2, Plus, Play, Pause, XCircle, Pencil, RotateCcw, Loader2 } 
 import { useToast } from "@/hooks/use-toast";
 import { useQueryClient } from "@tanstack/react-query";
 import { Badge } from "@/components/ui/badge";
-import { format } from "date-fns";
+import { formatScheduleIST } from "@/lib/datetime";
 import { 
   Table, 
   TableBody, 
@@ -190,8 +190,8 @@ export default function Campaigns() {
                       </div>
                     </TableCell>
                     <TableCell className="text-sm">
-                      {campaign.scheduledAt 
-                        ? format(new Date(campaign.scheduledAt), "MMM d, yyyy h:mm a") 
+                      {campaign.scheduledAt
+                        ? formatScheduleIST(campaign.scheduledAt)
                         : <span className="text-muted-foreground italic">Not scheduled</span>}
                     </TableCell>
                     <TableCell className="text-right">

@@ -1,6 +1,6 @@
 import { useParams } from "wouter";
-import { format } from "date-fns";
 import { useGetCampaign } from "@workspace/api-client-react";
+import { formatScheduleIST } from "@/lib/datetime";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Send, CheckCircle2, XCircle, Users, Activity, BarChart2 } from "lucide-react";
@@ -105,7 +105,7 @@ export default function CampaignDetail() {
               <dt className="text-sm font-medium text-muted-foreground">Schedule</dt>
               <dd className="mt-1 text-sm">
                 {campaign.scheduledAt
-                  ? format(new Date(campaign.scheduledAt), "MMM d, yyyy h:mm a")
+                  ? formatScheduleIST(campaign.scheduledAt)
                   : "Not scheduled"}
               </dd>
             </div>
