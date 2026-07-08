@@ -2,6 +2,7 @@ import { Router, type IRouter } from "express";
 import multer from "multer";
 import * as XLSX from "xlsx";
 import { Contact } from "../models/Contact";
+import { ContactGroup } from "../models/ContactGroup";
 import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
@@ -46,7 +47,9 @@ router.post("/contacts/import", upload.single("file"), async (req, res): Promise
     return;
   }
 
-  const groupId = (req.body as Record<string, string>).groupId || null;
+  const body = req.body as Record<string, string>;
+  const groupId = body.groupId || null;
+  const autoSplit = body.autoSplit === "true";
 
   try {
     const workbook = XLSX.read(req.file.buffer, { type: "buffer" });
@@ -78,6 +81,23 @@ router.post("/contacts/import", upload.single("file"), async (req, res): Promise
     let skipped = 0;
     const errors: string[] = [];
 
+    const baseName = req.file.originalname ? req.file.originalname.replace(/\.[^/.]+$/, "") : "Import";
+    let currentGroupId = groupId;
+    let groupIndex = 1;
+    let successCountInCurrentGroup = 0;
+
+    const getOrCreateGroupForBatch = async (index: number) => {
+      const groupName = `${baseName} - Part ${index}`;
+      let group = await ContactGroup.findOne({ name: groupName });
+      if (!group) {
+        group = await ContactGroup.create({
+          name: groupName,
+          description: `Automatically created during import of ${req.file?.originalname}`,
+        });
+      }
+      return group._id;
+    };
+
     for (let i = 1; i < rows.length; i++) {
       const row = rows[i];
       const email = String(row[emailCol] ?? "").trim().toLowerCase();
@@ -92,7 +112,21 @@ router.post("/contacts/import", upload.single("file"), async (req, res): Promise
         if (nameCol !== -1 && row[nameCol]) contactData.name = String(row[nameCol]).trim();
         if (companyCol !== -1 && row[companyCol]) contactData.company = String(row[companyCol]).trim();
         if (phoneCol !== -1 && row[phoneCol]) contactData.phone = String(row[phoneCol]).trim();
-        if (groupId) contactData.groupIds = [groupId];
+
+        if (autoSplit) {
+          if (!currentGroupId || successCountInCurrentGroup >= 500) {
+            if (successCountInCurrentGroup >= 500) {
+              groupIndex++;
+              successCountInCurrentGroup = 0;
+            }
+            const newGroupId = await getOrCreateGroupForBatch(groupIndex);
+            currentGroupId = String(newGroupId);
+          }
+        }
+
+        if (currentGroupId) {
+          contactData.groupIds = [currentGroupId];
+        }
 
         await Contact.findOneAndUpdate(
           { email },
@@ -100,6 +134,9 @@ router.post("/contacts/import", upload.single("file"), async (req, res): Promise
           { upsert: true, new: true },
         );
         imported++;
+        if (autoSplit) {
+          successCountInCurrentGroup++;
+        }
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
         errors.push(`Row ${i + 1} (${email}): ${msg}`);
