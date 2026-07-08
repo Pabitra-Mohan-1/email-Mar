@@ -7,6 +7,7 @@ import {
   UpdateCampaignStatusBody,
   ListCampaignsQueryParams,
 } from "@workspace/api-zod";
+import { triggerCampaignProcessing } from "../lib/campaignRunner";
 
 const router: IRouter = Router();
 
@@ -118,15 +119,29 @@ router.patch("/campaigns/:id/status", async (req, res): Promise<void> => {
     res.status(400).json({ error: parsed.error.message });
     return;
   }
+  const update: Record<string, unknown> = { status: parsed.data.status };
+  // When (re)starting a campaign, clear the pacing checkpoint so the first batch
+  // goes out immediately instead of waiting out the previous interval window.
+  if (parsed.data.status === "running") {
+    update.lastProcessedAt = null;
+  }
+
   const campaign = await Campaign.findByIdAndUpdate(
     raw,
-    { status: parsed.data.status },
+    update,
     { new: true },
   ).lean();
   if (!campaign) {
     res.status(404).json({ error: "Campaign not found" });
     return;
   }
+
+  // Kick off processing right away so a manually-started campaign begins sending
+  // without waiting for the next runner tick.
+  if (parsed.data.status === "running") {
+    triggerCampaignProcessing();
+  }
+
   res.json(serializeCampaign(campaign));
 });
 

@@ -6,7 +6,7 @@ import { EmailLog } from "../models/EmailLog";
 import { SmtpAccount } from "../models/SmtpAccount";
 import { EmailTemplate } from "../models/EmailTemplate";
 
-const TICK_INTERVAL_MS = 60_000; // run every minute
+const TICK_INTERVAL_MS = 15_000; // run every 15s so batches flow responsively
 const DEFAULT_HOURLY_LIMIT = 200;
 
 let running = false;
@@ -22,6 +22,16 @@ async function tick() {
   } finally {
     running = false;
   }
+}
+
+/**
+ * Kick off a processing pass immediately (e.g. right after a campaign is started
+ * manually) so the first batch goes out without waiting for the next tick.
+ * Runs in the background; safe to call repeatedly (the `running` guard prevents
+ * overlap with the interval tick).
+ */
+export function triggerCampaignProcessing(): void {
+  void tick();
 }
 
 async function processScheduledCampaigns() {
@@ -87,12 +97,16 @@ async function processCampaign(campaign: Record<string, unknown>) {
   // Get contacts already emailed for this campaign (any status)
   const emailedRecipients = await EmailLog.distinct("recipient", { campaignId });
 
-  // Get contacts from group
+  // Get contacts from group. A campaign MUST target a group — without one we
+  // would email every active contact, which is almost never intended. Guard
+  // against that (e.g. legacy campaigns or direct API calls) by pausing instead.
   const groupId = campaign.groupId;
-  const filter: Record<string, unknown> = { isActive: true };
-  if (groupId) {
-    filter["groupIds"] = groupId;
+  if (!groupId) {
+    await Campaign.findByIdAndUpdate(campaignId, { status: "paused" });
+    logger.warn({ campaignId }, "Campaign has no target group — pausing to avoid sending to all contacts");
+    return;
   }
+  const filter: Record<string, unknown> = { isActive: true, groupIds: groupId };
 
   const contacts = await Contact.find({
     ...filter,
@@ -195,6 +209,20 @@ async function processCampaign(campaign: Record<string, unknown>) {
   });
 
   logger.info({ campaignId, sentCount, failedCount }, "Campaign batch sent");
+
+  // If every contact in the group has now been emailed, mark the campaign
+  // completed in this same pass. Otherwise it would stay "running" until a later
+  // tick — which the interval gate can delay by up to intervalMinutes.
+  const justEmailed = contacts.map((c) => (c as Record<string, unknown>).email);
+  const remainingContacts = await Contact.countDocuments({
+    ...filter,
+    email: { $nin: [...emailedRecipients, ...justEmailed] },
+  });
+
+  if (remainingContacts === 0) {
+    await Campaign.findByIdAndUpdate(campaignId, { status: "completed" });
+    logger.info({ campaignId }, "Campaign completed");
+  }
 }
 
 export function startCampaignRunner() {

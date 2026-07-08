@@ -30,7 +30,7 @@ const campaignSchema = z.object({
   senderEmail: z.string().email("Valid email is required"),
   smtpAccountId: z.string().optional(),
   templateId: z.string().optional(),
-  groupId: z.string().optional(),
+  groupId: z.string().min(1, "Target contact group is required"),
   scheduledAt: z.string().optional(),
   mailsPerBatch: z.coerce.number().min(1, "Must send at least 1 mail per batch").default(10),
   intervalMinutes: z.coerce.number().min(1, "Interval must be at least 1 minute").default(1),
@@ -38,6 +38,16 @@ const campaignSchema = z.object({
 });
 
 type CampaignFormValues = z.infer<typeof campaignSchema>;
+
+// Convert a stored ISO timestamp (UTC) into the local "YYYY-MM-DDTHH:mm" value
+// that a <input type="datetime-local"> expects, so editing preserves the exact
+// instant the user originally scheduled instead of drifting by the UTC offset.
+function toLocalDatetimeInput(iso: string): string {
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return "";
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
 
 interface CampaignDialogProps {
   open: boolean;
@@ -118,7 +128,7 @@ export function CampaignDialog({ open, onOpenChange, campaign }: CampaignDialogP
           smtpAccountId: campaign.smtpAccountId || "",
           templateId: campaign.templateId || "",
           groupId: campaign.groupId || "",
-          scheduledAt: campaign.scheduledAt ? campaign.scheduledAt.substring(0, 16) : "",
+          scheduledAt: campaign.scheduledAt ? toLocalDatetimeInput(campaign.scheduledAt) : "",
           mailsPerBatch: campaign.mailsPerBatch ?? 10,
           intervalMinutes: campaign.intervalMinutes ?? 1,
           customHtml: campaign.customHtml || "",
@@ -147,7 +157,16 @@ export function CampaignDialog({ open, onOpenChange, campaign }: CampaignDialogP
       if (!payload.smtpAccountId) payload.smtpAccountId = null;
       if (!payload.templateId) payload.templateId = null;
       if (!payload.groupId) payload.groupId = null;
-      if (!payload.scheduledAt) payload.scheduledAt = null;
+      // The datetime-local input yields a timezone-less local string
+      // (e.g. "2026-07-15T14:30"). Convert it to a full UTC ISO string in the
+      // browser (which knows the user's timezone) so the server stores the exact
+      // instant the user picked, regardless of the server's own timezone.
+      if (!payload.scheduledAt) {
+        payload.scheduledAt = null;
+      } else {
+        const parsedDate = new Date(payload.scheduledAt);
+        payload.scheduledAt = isNaN(parsedDate.getTime()) ? null : parsedDate.toISOString();
+      }
 
       if (campaign) {
         await updateCampaign.mutateAsync({ id: campaign.id, data: payload });
@@ -268,9 +287,9 @@ export function CampaignDialog({ open, onOpenChange, campaign }: CampaignDialogP
           {/* Step 4: Target Group & Schedule */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
             <div className="space-y-2">
-              <Label htmlFor="groupId">Target Contact Group</Label>
-              <select 
-                id="groupId" 
+              <Label htmlFor="groupId">Target Contact Group *</Label>
+              <select
+                id="groupId"
                 {...register("groupId")}
                 className="flex h-10 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
               >
@@ -279,6 +298,7 @@ export function CampaignDialog({ open, onOpenChange, campaign }: CampaignDialogP
                   <option key={group.id} value={group.id}>{group.name} ({group.contactCount} contacts)</option>
                 ))}
               </select>
+              {errors.groupId && <p className="text-sm text-destructive">{errors.groupId.message}</p>}
             </div>
             <div className="space-y-2">
               <Label htmlFor="scheduledAt">Schedule For (Optional)</Label>

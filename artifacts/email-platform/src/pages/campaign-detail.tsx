@@ -1,4 +1,5 @@
 import { useParams } from "wouter";
+import { format } from "date-fns";
 import { useGetCampaign } from "@workspace/api-client-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -102,7 +103,11 @@ export default function CampaignDetail() {
             </div>
             <div>
               <dt className="text-sm font-medium text-muted-foreground">Schedule</dt>
-              <dd className="mt-1 text-sm">{campaign.scheduledAt || "Not scheduled"}</dd>
+              <dd className="mt-1 text-sm">
+                {campaign.scheduledAt
+                  ? format(new Date(campaign.scheduledAt), "MMM d, yyyy h:mm a")
+                  : "Not scheduled"}
+              </dd>
             </div>
             <div>
               <dt className="text-sm font-medium text-muted-foreground">Limits</dt>
