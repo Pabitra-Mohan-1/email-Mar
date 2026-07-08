@@ -31,6 +31,7 @@ export function ImportDialog({ open, onOpenChange, groupId }: ImportDialogProps)
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<ImportResult | null>(null);
   const [selectedGroupId, setSelectedGroupId] = useState("");
+  const [autoSplit, setAutoSplit] = useState(true);
   const inputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -39,6 +40,7 @@ export function ImportDialog({ open, onOpenChange, groupId }: ImportDialogProps)
   useEffect(() => {
     if (open) {
       setSelectedGroupId(groupId || "");
+      setAutoSplit(true);
     }
   }, [open, groupId]);
 
@@ -64,6 +66,7 @@ export function ImportDialog({ open, onOpenChange, groupId }: ImportDialogProps)
       const formData = new FormData();
       formData.append("file", file);
       if (selectedGroupId) formData.append("groupId", selectedGroupId);
+      formData.append("autoSplit", String(autoSplit));
 
       const res = await fetch("/api/contacts/import", {
         method: "POST",
@@ -109,20 +112,36 @@ export function ImportDialog({ open, onOpenChange, groupId }: ImportDialogProps)
         <div className="py-2 space-y-4">
           {/* Group Selection */}
           {!result && (
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Assign Imported Contacts to Group</label>
-              <select
-                value={selectedGroupId}
-                onChange={(e) => setSelectedGroupId(e.target.value)}
-                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-1 focus:ring-ring"
-              >
-                <option value="">-- No Group (Import as General Contacts) --</option>
-                {groups?.map((group) => (
-                  <option key={group.id} value={group.id}>
-                    {group.name}
-                  </option>
-                ))}
-              </select>
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Assign Imported Contacts to Group</label>
+                <select
+                  value={selectedGroupId}
+                  disabled={autoSplit}
+                  onChange={(e) => setSelectedGroupId(e.target.value)}
+                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-50"
+                >
+                  <option value="">-- No Group (Import as General Contacts) --</option>
+                  {groups?.map((group) => (
+                    <option key={group.id} value={group.id}>
+                      {group.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="flex items-center space-x-2">
+                <input
+                  type="checkbox"
+                  id="auto-split-checkbox"
+                  checked={autoSplit}
+                  onChange={(e) => setAutoSplit(e.target.checked)}
+                  className="h-4 w-4 rounded border-input text-primary focus:ring-ring focus:ring-1 focus:outline-none cursor-pointer"
+                />
+                <label htmlFor="auto-split-checkbox" className="text-sm font-medium text-muted-foreground select-none cursor-pointer">
+                  Auto-split into groups of 500 contacts
+                </label>
+              </div>
             </div>
           )}
 
