@@ -41,6 +41,17 @@ function detectColumn(headers: string[], field: string): number {
   return -1;
 }
 
+interface ImportJob {
+  imported: number;
+  skipped: number;
+  errors: string[];
+  total: number;
+  status: "processing" | "completed" | "failed";
+  error?: string;
+}
+
+const importJobs = new Map<string, ImportJob>();
+
 router.post("/contacts/import", upload.single("file"), async (req, res): Promise<void> => {
   if (!req.file) {
     res.status(400).json({ error: "No file uploaded" });
@@ -77,80 +88,132 @@ router.post("/contacts/import", upload.single("file"), async (req, res): Promise
       return;
     }
 
-    let imported = 0;
-    let skipped = 0;
-    const errors: string[] = [];
+    const jobId = Math.random().toString(36).substring(2, 15);
+    const totalContacts = rows.length - 1;
 
-    const baseName = req.file.originalname ? req.file.originalname.replace(/\.[^/.]+$/, "") : "Import";
-    let currentGroupId = groupId;
-    let groupIndex = 1;
-    let successCountInCurrentGroup = 0;
+    importJobs.set(jobId, {
+      imported: 0,
+      skipped: 0,
+      errors: [],
+      total: totalContacts,
+      status: "processing",
+    });
 
-    const getOrCreateGroupForBatch = async (index: number) => {
-      const groupName = `${baseName} - Part ${index}`;
-      let group = await ContactGroup.findOne({ name: groupName });
-      if (!group) {
-        group = await ContactGroup.create({
-          name: groupName,
-          description: `Automatically created during import of ${req.file?.originalname}`,
-        });
-      }
-      return group._id;
-    };
+    res.json({ jobId });
 
-    for (let i = 1; i < rows.length; i++) {
-      const row = rows[i];
-      const email = String(row[emailCol] ?? "").trim().toLowerCase();
-      if (!email || !email.includes("@")) {
-        if (email) errors.push(`Row ${i + 1}: invalid email "${email}"`);
-        skipped++;
-        continue;
-      }
+    // Background processing
+    (async () => {
+      let imported = 0;
+      let skipped = 0;
+      const errors: string[] = [];
 
       try {
-        const contactData: Record<string, unknown> = { email };
-        if (nameCol !== -1 && row[nameCol]) contactData.name = String(row[nameCol]).trim();
-        if (companyCol !== -1 && row[companyCol]) contactData.company = String(row[companyCol]).trim();
-        if (phoneCol !== -1 && row[phoneCol]) contactData.phone = String(row[phoneCol]).trim();
+        const baseName = req.file!.originalname ? req.file!.originalname.replace(/\.[^/.]+$/, "") : "Import";
+        let currentGroupId = groupId;
+        let groupIndex = 1;
+        let successCountInCurrentGroup = 0;
 
-        if (autoSplit) {
-          if (!currentGroupId || successCountInCurrentGroup >= 500) {
-            if (successCountInCurrentGroup >= 500) {
-              groupIndex++;
-              successCountInCurrentGroup = 0;
+        const getOrCreateGroupForBatch = async (index: number) => {
+          const groupName = `${baseName} - Part ${index}`;
+          let group = await ContactGroup.findOne({ name: groupName });
+          if (!group) {
+            group = await ContactGroup.create({
+              name: groupName,
+              description: `Automatically created during import of ${req.file?.originalname}`,
+            });
+          }
+          return group._id;
+        };
+
+        for (let i = 1; i < rows.length; i++) {
+          const row = rows[i];
+          const email = String(row[emailCol] ?? "").trim().toLowerCase();
+          if (!email || !email.includes("@")) {
+            if (email) errors.push(`Row ${i + 1}: invalid email "${email}"`);
+            skipped++;
+            
+            const job = importJobs.get(jobId);
+            if (job) {
+              job.skipped = skipped;
+              job.errors = errors;
             }
-            const newGroupId = await getOrCreateGroupForBatch(groupIndex);
-            currentGroupId = String(newGroupId);
+            continue;
+          }
+
+          try {
+            const contactData: Record<string, unknown> = { email };
+            if (nameCol !== -1 && row[nameCol]) contactData.name = String(row[nameCol]).trim();
+            if (companyCol !== -1 && row[companyCol]) contactData.company = String(row[companyCol]).trim();
+            if (phoneCol !== -1 && row[phoneCol]) contactData.phone = String(row[phoneCol]).trim();
+
+            if (autoSplit) {
+              if (!currentGroupId || successCountInCurrentGroup >= 500) {
+                if (successCountInCurrentGroup >= 500) {
+                  groupIndex++;
+                  successCountInCurrentGroup = 0;
+                }
+                const newGroupId = await getOrCreateGroupForBatch(groupIndex);
+                currentGroupId = String(newGroupId);
+              }
+            }
+
+            if (currentGroupId) {
+              contactData.groupIds = [currentGroupId];
+            }
+
+            await Contact.findOneAndUpdate(
+              { email },
+              { $set: contactData, $setOnInsert: { isActive: true } },
+              { upsert: true, new: true },
+            );
+            imported++;
+            if (autoSplit) {
+              successCountInCurrentGroup++;
+            }
+          } catch (err: unknown) {
+            const msg = err instanceof Error ? err.message : String(err);
+            errors.push(`Row ${i + 1} (${email}): ${msg}`);
+            skipped++;
+          }
+
+          const job = importJobs.get(jobId);
+          if (job) {
+            job.imported = imported;
+            job.skipped = skipped;
+            job.errors = errors;
           }
         }
 
-        if (currentGroupId) {
-          contactData.groupIds = [currentGroupId];
+        const job = importJobs.get(jobId);
+        if (job) {
+          job.status = "completed";
         }
-
-        await Contact.findOneAndUpdate(
-          { email },
-          { $set: contactData, $setOnInsert: { isActive: true } },
-          { upsert: true, new: true },
-        );
-        imported++;
-        if (autoSplit) {
-          successCountInCurrentGroup++;
-        }
+        logger.info({ jobId, imported, skipped, errors: errors.length }, "Contact background import completed");
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
-        errors.push(`Row ${i + 1} (${email}): ${msg}`);
-        skipped++;
+        logger.error({ jobId, err }, "Background import failed");
+        const job = importJobs.get(jobId);
+        if (job) {
+          job.status = "failed";
+          job.error = msg;
+        }
       }
-    }
-
-    logger.info({ imported, skipped, errors: errors.length }, "Contact import completed");
-    res.json({ imported, skipped, errors: errors.slice(0, 20) });
+    })();
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
-    logger.error({ err }, "Import failed");
+    logger.error({ err }, "Import failed initial parsing");
     res.status(500).json({ error: `Import failed: ${msg}` });
   }
+});
+
+router.get("/contacts/import/status/:jobId", (req, res): void => {
+  const { jobId } = req.params;
+  const job = importJobs.get(jobId);
+  if (!job) {
+    res.status(404).json({ error: "Import job not found" });
+    return;
+  }
+  res.json(job);
 });
 
 export default router;

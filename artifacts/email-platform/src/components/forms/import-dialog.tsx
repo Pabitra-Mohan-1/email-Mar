@@ -32,7 +32,9 @@ export function ImportDialog({ open, onOpenChange, groupId }: ImportDialogProps)
   const [result, setResult] = useState<ImportResult | null>(null);
   const [selectedGroupId, setSelectedGroupId] = useState("");
   const [autoSplit, setAutoSplit] = useState(true);
+  const [progress, setProgress] = useState<{ imported: number; skipped: number; total: number; percentage: number } | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const pollIntervalRef = useRef<any>(null);
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const { data: groups } = useListGroups();
@@ -41,12 +43,19 @@ export function ImportDialog({ open, onOpenChange, groupId }: ImportDialogProps)
     if (open) {
       setSelectedGroupId(groupId || "");
       setAutoSplit(true);
+      setProgress(null);
     }
+    return () => {
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current);
+      }
+    };
   }, [open, groupId]);
 
   const handleFile = (f: File) => {
     setFile(f);
     setResult(null);
+    setProgress(null);
   };
 
   const onDrop = useCallback((e: React.DragEvent) => {
@@ -62,6 +71,7 @@ export function ImportDialog({ open, onOpenChange, groupId }: ImportDialogProps)
   const handleImport = async () => {
     if (!file) return;
     setLoading(true);
+    setProgress(null);
     try {
       const formData = new FormData();
       formData.append("file", file);
@@ -76,25 +86,78 @@ export function ImportDialog({ open, onOpenChange, groupId }: ImportDialogProps)
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Import failed");
 
-      setResult(data as ImportResult);
-      queryClient.invalidateQueries({ queryKey: getListContactsQueryKey() });
-      // Invalidate groups list too since counts will update
-      queryClient.invalidateQueries({ queryKey: getListGroupsQueryKey() });
-      toast({ title: `Imported ${data.imported} contacts successfully` });
+      const jobId = data.jobId;
+      if (!jobId) {
+        throw new Error("No import Job ID returned");
+      }
+
+      pollIntervalRef.current = setInterval(async () => {
+        try {
+          const statusRes = await fetch(`/api/contacts/import/status/${jobId}`);
+          if (!statusRes.ok) throw new Error("Failed to fetch import status");
+          const statusData = await statusRes.json();
+
+          const processed = statusData.imported + statusData.skipped;
+          const pct = statusData.total > 0 ? Math.round((processed / statusData.total) * 100) : 0;
+
+          setProgress({
+            imported: statusData.imported,
+            skipped: statusData.skipped,
+            total: statusData.total,
+            percentage: Math.min(pct, 100)
+          });
+
+          if (statusData.status === "completed" || statusData.status === "failed") {
+            if (pollIntervalRef.current) {
+              clearInterval(pollIntervalRef.current);
+            }
+            setLoading(false);
+
+            if (statusData.status === "failed") {
+              throw new Error(statusData.error || "Import failed during background processing");
+            }
+
+            setResult({
+              imported: statusData.imported,
+              skipped: statusData.skipped,
+              errors: statusData.errors || [],
+            });
+
+            queryClient.invalidateQueries({ queryKey: getListContactsQueryKey() });
+            queryClient.invalidateQueries({ queryKey: getListGroupsQueryKey() });
+            toast({ title: `Imported ${statusData.imported} contacts successfully` });
+          }
+        } catch (err) {
+          if (pollIntervalRef.current) {
+            clearInterval(pollIntervalRef.current);
+          }
+          setLoading(false);
+          setProgress(null);
+          toast({
+            title: "Import failed",
+            description: err instanceof Error ? err.message : String(err),
+            variant: "destructive",
+          });
+        }
+      }, 500);
+
     } catch (err: unknown) {
       toast({
         title: "Import failed",
         description: err instanceof Error ? err.message : String(err),
         variant: "destructive",
       });
-    } finally {
       setLoading(false);
     }
   };
 
   const handleClose = () => {
+    if (pollIntervalRef.current) {
+      clearInterval(pollIntervalRef.current);
+    }
     setFile(null);
     setResult(null);
+    setProgress(null);
     onOpenChange(false);
   };
 
@@ -110,8 +173,39 @@ export function ImportDialog({ open, onOpenChange, groupId }: ImportDialogProps)
         </DialogHeader>
 
         <div className="py-2 space-y-4">
+          {/* Progress bar */}
+          {loading && progress && (
+            <div className="space-y-3 py-4">
+              <div className="flex justify-between items-center text-sm font-medium">
+                <span className="text-primary animate-pulse flex items-center gap-2">
+                  <span className="h-2 w-2 bg-primary rounded-full animate-ping" />
+                  Importing contacts...
+                </span>
+                <span className="text-primary font-bold">{progress.percentage}%</span>
+              </div>
+              <div className="w-full bg-muted rounded-full h-3.5 overflow-hidden border border-border">
+                <div
+                  className="bg-primary h-full transition-all duration-300 ease-out rounded-full"
+                  style={{ width: `${progress.percentage}%` }}
+                />
+              </div>
+              <div className="text-xs text-muted-foreground flex justify-between">
+                <span>Processed: {progress.imported + progress.skipped} / {progress.total} contacts</span>
+                <span>Skipped/Duplicates: {progress.skipped}</span>
+              </div>
+            </div>
+          )}
+
+          {/* Initial loading placeholder */}
+          {loading && !progress && (
+            <div className="flex flex-col items-center justify-center py-8 gap-3">
+              <span className="h-8 w-8 border-4 border-primary border-t-transparent rounded-full animate-spin" />
+              <p className="text-sm font-medium text-muted-foreground">Uploading and parsing file...</p>
+            </div>
+          )}
+
           {/* Group Selection */}
-          {!result && (
+          {!result && !loading && (
             <div className="space-y-4">
               <div className="space-y-2">
                 <label className="text-sm font-medium">Assign Imported Contacts to Group</label>
@@ -146,7 +240,7 @@ export function ImportDialog({ open, onOpenChange, groupId }: ImportDialogProps)
           )}
 
           {/* Drop zone */}
-          {!result && (
+          {!result && !loading && (
             <div
               onDrop={onDrop}
               onDragOver={onDragOver}
@@ -184,7 +278,7 @@ export function ImportDialog({ open, onOpenChange, groupId }: ImportDialogProps)
           )}
 
           {/* Column format hint */}
-          {!result && (
+          {!result && !loading && (
             <div className="rounded-md bg-muted/50 border px-4 py-3 text-xs text-muted-foreground space-y-1">
               <p className="font-semibold text-foreground/80 mb-1">Expected column headers (any order):</p>
               <div className="grid grid-cols-2 gap-x-4 gap-y-0.5">
@@ -226,23 +320,16 @@ export function ImportDialog({ open, onOpenChange, groupId }: ImportDialogProps)
         </div>
 
         <DialogFooter>
-          <Button variant="outline" onClick={handleClose}>
+          <Button variant="outline" onClick={handleClose} disabled={loading}>
             {result ? <><X className="h-4 w-4 mr-1" /> Close</> : "Cancel"}
           </Button>
-          {!result && (
+          {!result && !loading && (
             <Button onClick={handleImport} disabled={!file || loading}>
-              {loading ? (
-                <span className="flex items-center gap-2">
-                  <span className="h-4 w-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                  Importing…
-                </span>
-              ) : (
-                <><Upload className="h-4 w-4 mr-2" /> Import</>
-              )}
+              <><Upload className="h-4 w-4 mr-2" /> Import</>
             </Button>
           )}
           {result && (
-            <Button onClick={() => { setFile(null); setResult(null); }}>
+            <Button onClick={() => { setFile(null); setResult(null); setProgress(null); }}>
               Import another file
             </Button>
           )}

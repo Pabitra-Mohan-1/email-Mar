@@ -52,7 +52,13 @@ router.post("/auth/login", async (req, res): Promise<void> => {
 
 // Logout
 router.post("/auth/logout", async (req, res): Promise<void> => {
-  res.clearCookie("auth_token");
+  const isProd = process.env.NODE_ENV === "production";
+  res.clearCookie("auth_token", {
+    httpOnly: true,
+    secure: isProd,
+    sameSite: isProd ? "none" : "lax",
+    path: "/",
+  });
   res.json({ success: true, message: "Logged out successfully" });
 });
 

@@ -1,4 +1,5 @@
 import { Switch, Route, Router as WouterRouter, useLocation } from "wouter";
+import { useEffect } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -25,7 +26,19 @@ const queryClient = new QueryClient();
 
 function Router() {
   const { user, loading } = useAuth();
-  const [location] = useLocation();
+  const [location, setLocation] = useLocation();
+
+  useEffect(() => {
+    if (!loading && !user && location !== "/login") {
+      setLocation("/login");
+    }
+  }, [user, loading, location, setLocation]);
+
+  useEffect(() => {
+    if (!loading && user && location === "/login") {
+      setLocation("/");
+    }
+  }, [user, loading, location, setLocation]);
 
   if (loading) {
     return (
@@ -35,33 +48,8 @@ function Router() {
     );
   }
 
-  // Handle unauthenticated state
   if (!user) {
-    if (location === "/login") {
-      return <Login />;
-    }
-    
-    // Redirect helper using standard navigation
-    return (
-      <Route>
-        {() => {
-          window.location.href = "/login";
-          return null;
-        }}
-      </Route>
-    );
-  }
-
-  // Prevent accessing login if already logged in
-  if (location === "/login") {
-    return (
-      <Route>
-        {() => {
-          window.location.href = "/";
-          return null;
-        }}
-      </Route>
-    );
+    return <Login />;
   }
 
   return (

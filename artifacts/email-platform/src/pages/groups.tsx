@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useListGroups, useDeleteGroup } from "@workspace/api-client-react";
+import { useListGroups } from "@workspace/api-client-react";
 import { getListGroupsQueryKey } from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -9,13 +9,23 @@ import { format } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
 import { useQueryClient } from "@tanstack/react-query";
 import { GroupDialog } from "@/components/forms/group-dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
 
 export default function Groups() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingGroup, setEditingGroup] = useState<any>(null);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [deletingGroup, setDeletingGroup] = useState<any>(null);
+  const [deleting, setDeleting] = useState(false);
 
   const { data: groups, isLoading } = useListGroups();
-  const deleteGroup = useDeleteGroup();
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -29,14 +39,28 @@ export default function Groups() {
     setDialogOpen(true);
   };
 
-  const handleDelete = async (id: string) => {
-    if (!confirm("Are you sure you want to delete this group? Contacts in the group will not be deleted.")) return;
+  const handleDeleteClick = (group: any) => {
+    setDeletingGroup(group);
+    setDeleteDialogOpen(true);
+  };
+
+  const handleDelete = async (deleteContacts: boolean) => {
+    if (!deletingGroup) return;
+    setDeleting(true);
     try {
-      await deleteGroup.mutateAsync({ id });
+      const res = await fetch(`/api/groups/${deletingGroup.id}?deleteContacts=${deleteContacts}`, {
+        method: "DELETE",
+      });
+      if (!res.ok) throw new Error("Failed to delete group");
+
       queryClient.invalidateQueries({ queryKey: getListGroupsQueryKey() });
-      toast({ title: "Group deleted" });
+      toast({ title: deleteContacts ? "Group and its contacts deleted" : "Group deleted" });
+      setDeleteDialogOpen(false);
     } catch (e) {
-      toast({ title: "Failed to delete", variant: "destructive" });
+      toast({ title: "Failed to delete group", variant: "destructive" });
+    } finally {
+      setDeleting(false);
+      setDeletingGroup(null);
     }
   };
 
@@ -82,7 +106,7 @@ export default function Groups() {
                   variant="ghost" 
                   size="icon" 
                   className="h-8 w-8 text-destructive hover:text-destructive hover:bg-destructive/10"
-                  onClick={() => handleDelete(group.id)}
+                  onClick={() => handleDeleteClick(group)}
                 >
                   <Trash2 className="h-4 w-4" />
                 </Button>
@@ -115,6 +139,51 @@ export default function Groups() {
         onOpenChange={setDialogOpen} 
         group={editingGroup} 
       />
+
+      <Dialog open={deleteDialogOpen} onOpenChange={(open) => !deleting && setDeleteDialogOpen(open)}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Delete Group</DialogTitle>
+            <DialogDescription>
+              How would you like to delete the group <strong className="text-foreground">"{deletingGroup?.name}"</strong>?
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-2 text-sm text-muted-foreground space-y-2">
+            <p>
+              • <strong>Delete Group Only</strong>: Keeps all contacts associated with this group in your database.
+            </p>
+            <p>
+              • <strong>Delete Group & Contacts</strong>: Permanently deletes the group and all its {deletingGroup?.contactCount || 0} contacts.
+            </p>
+          </div>
+          <DialogFooter className="flex flex-col-reverse sm:flex-row sm:justify-end gap-2 mt-6">
+            <Button
+              variant="outline"
+              onClick={() => setDeleteDialogOpen(false)}
+              disabled={deleting}
+              className="w-full sm:w-auto"
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={() => handleDelete(false)}
+              disabled={deleting}
+              className="w-full sm:w-auto"
+            >
+              Delete Group Only
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => handleDelete(true)}
+              disabled={deleting}
+              className="w-full sm:w-auto"
+            >
+              {deleting ? "Deleting..." : "Delete Group & Contacts"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

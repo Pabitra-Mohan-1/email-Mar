@@ -186,4 +186,19 @@ router.post("/inbox/leads/reclassify", async (req, res): Promise<void> => {
   }
 });
 
+// 8. Delete a lead
+router.delete("/inbox/leads/:id", async (req, res): Promise<void> => {
+  try {
+    const { id } = req.params;
+    const deleted = await IncomingEmail.findByIdAndDelete(id);
+    if (!deleted) {
+      res.status(404).json({ error: "Lead not found" });
+      return;
+    }
+    res.sendStatus(204);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message || "Failed to delete lead" });
+  }
+});
+
 export default router;

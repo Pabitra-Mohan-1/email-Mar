@@ -3,7 +3,8 @@ import { useLocation } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { 
   Sparkles, Mail, MessageSquare, ChevronRight, User, Calendar, 
-  AlertCircle, ShieldCheck, CheckSquare, Eye, ExternalLink, RefreshCw
+  AlertCircle, ShieldCheck, CheckSquare, Eye, ExternalLink, RefreshCw,
+  Trash2
 } from "lucide-react";
 import { 
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow 
@@ -109,6 +110,20 @@ export default function Leads() {
       });
     } finally {
       setIsSendingReply(false);
+    }
+  };
+
+  const handleDeleteLead = async (id: string) => {
+    if (!confirm("Are you sure you want to delete this lead?")) return;
+    try {
+      const res = await fetch(`/api/inbox/leads/${id}`, {
+        method: "DELETE",
+      });
+      if (!res.ok) throw new Error("Failed to delete lead");
+      queryClient.invalidateQueries({ queryKey: ["leads"] });
+      toast({ title: "Lead deleted successfully" });
+    } catch (err: any) {
+      toast({ title: "Delete failed", description: err.message, variant: "destructive" });
     }
   };
 
@@ -251,7 +266,7 @@ export default function Leads() {
                     </select>
                   </TableCell>
                   <TableCell className="text-right">
-                    <div className="flex items-center justify-end gap-2">
+                    <div className="flex items-center justify-end gap-1">
                       <Button
                         variant="ghost"
                         size="sm"
@@ -272,6 +287,15 @@ export default function Leads() {
                       >
                         <Mail className="h-3.5 w-3.5" />
                         View & Reply
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => handleDeleteLead(lead._id)}
+                        className="h-8 w-8 text-destructive hover:text-destructive hover:bg-destructive/10 shrink-0"
+                        title="Delete lead"
+                      >
+                        <Trash2 className="h-4 w-4" />
                       </Button>
                     </div>
                   </TableCell>

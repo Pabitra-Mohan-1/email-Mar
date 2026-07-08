@@ -68,13 +68,22 @@ router.patch("/groups/:id", async (req, res): Promise<void> => {
 // Delete group
 router.delete("/groups/:id", async (req, res): Promise<void> => {
   const raw = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  const deleteContacts = req.query.deleteContacts === "true";
+
   const group = await ContactGroup.findByIdAndDelete(raw);
   if (!group) {
     res.status(404).json({ error: "Group not found" });
     return;
   }
-  // Remove this group from all contacts
-  await Contact.updateMany({ groupIds: raw }, { $pull: { groupIds: raw } });
+
+  if (deleteContacts) {
+    // Delete all contacts that belong to this group
+    await Contact.deleteMany({ groupIds: raw });
+  } else {
+    // Remove this group from all contacts
+    await Contact.updateMany({ groupIds: raw }, { $pull: { groupIds: raw } });
+  }
+
   res.sendStatus(204);
 });
 
