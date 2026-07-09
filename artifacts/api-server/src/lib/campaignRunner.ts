@@ -7,7 +7,7 @@ import { SmtpAccount } from "../models/SmtpAccount";
 import { EmailTemplate } from "../models/EmailTemplate";
 
 const TICK_INTERVAL_MS = 15_000; // run every 15s so batches flow responsively
-const DEFAULT_HOURLY_LIMIT = 200;
+const DEFAULT_HOURLY_LIMIT = 5000;
 
 let running = false;
 
@@ -91,7 +91,7 @@ async function processCampaign(campaign: Record<string, unknown>) {
   }
 
   // 2. Limit the query to the smaller of hourly remaining space or mailsPerBatch configuration
-  const mailsPerBatch = (campaign.mailsPerBatch as number) ?? 10;
+  const mailsPerBatch = (campaign.mailsPerBatch as number) ?? 500;
   const limitCount = Math.min(mailsPerBatch, remaining);
 
   // Get contacts already emailed for this campaign (any status)
@@ -154,61 +154,80 @@ async function processCampaign(campaign: Record<string, unknown>) {
   };
 
   const from = `${campaign.senderName} <${campaign.senderEmail}>`;
-  let sentCount = 0;
-  let failedCount = 0;
+  let totalSentInBatch = 0;
+  let totalFailedInBatch = 0;
 
   const CONCURRENCY_LIMIT = 10;
   for (let i = 0; i < contacts.length; i += CONCURRENCY_LIMIT) {
     const chunk = contacts.slice(i, i + CONCURRENCY_LIMIT);
+    let chunkSentCount = 0;
+    let chunkFailedCount = 0;
+
     const results = await Promise.all(
       chunk.map(async (contact) => {
-        const contactRecord = contact as Record<string, unknown>;
-        const name = (contactRecord.name as string | null) ?? (contactRecord.email as string);
-        const companyStr = (contactRecord.company as string) ?? "";
-        
-        const personalizedSubject = (campaign.subject as string)
-          .replace(/\{\{name\}\}/gi, name)
-          .replace(/\{\{email\}\}/gi, contactRecord.email as string)
-          .replace(/\{\{company\}\}/gi, companyStr);
+        try {
+          const contactRecord = contact as Record<string, unknown>;
+          const name = (contactRecord.name as string | null) ?? (contactRecord.email as string);
+          const companyStr = (contactRecord.company as string) ?? "";
+          
+          const personalizedSubject = (campaign.subject as string)
+            .replace(/\{\{name\}\}/gi, name)
+            .replace(/\{\{email\}\}/gi, contactRecord.email as string)
+            .replace(/\{\{company\}\}/gi, companyStr);
 
-        const personalizedHtml = html
-          .replace(/\{\{name\}\}/gi, name)
-          .replace(/\{\{email\}\}/gi, contactRecord.email as string)
-          .replace(/\{\{company\}\}/gi, companyStr);
+          const personalizedHtml = html
+            .replace(/\{\{name\}\}/gi, name)
+            .replace(/\{\{email\}\}/gi, contactRecord.email as string)
+            .replace(/\{\{company\}\}/gi, companyStr);
 
-        const result = await sendEmail(smtpCfg, {
-          to: contactRecord.email as string,
-          subject: personalizedSubject,
-          html: personalizedHtml,
-          from,
-        });
+          const result = await sendEmail(smtpCfg, {
+            to: contactRecord.email as string,
+            subject: personalizedSubject,
+            html: personalizedHtml,
+            from,
+          });
 
-        await EmailLog.create({
-          recipient: contactRecord.email,
-          campaignId,
-          campaignName: campaign.name,
-          smtpAccountId: smtpDoc._id,
-          status: result.success ? "sent" : "failed",
-          smtpResponse: result.messageId ?? null,
-          error: result.error ?? null,
-        });
+          await EmailLog.create({
+            recipient: contactRecord.email,
+            campaignId,
+            campaignName: campaign.name,
+            smtpAccountId: smtpDoc._id,
+            status: result.success ? "sent" : "failed",
+            smtpResponse: result.messageId ?? null,
+            error: result.error ?? null,
+          });
 
-        return result.success;
+          return result.success;
+        } catch (innerErr) {
+          logger.error({ innerErr, recipient: (contact as any).email }, "Failed to process recipient in batch");
+          return false;
+        }
       })
     );
 
     for (const success of results) {
-      if (success) sentCount++;
-      else failedCount++;
+      if (success) {
+        chunkSentCount++;
+        totalSentInBatch++;
+      } else {
+        chunkFailedCount++;
+        totalFailedInBatch++;
+      }
+    }
+
+    // Update progress incrementally in database after each chunk so the UI updates live
+    if (chunkSentCount > 0 || chunkFailedCount > 0) {
+      await Campaign.findByIdAndUpdate(campaignId, {
+        $inc: { 
+          sentCount: chunkSentCount, 
+          failedCount: chunkFailedCount 
+        },
+        $set: { lastProcessedAt: new Date() },
+      });
     }
   }
 
-  await Campaign.findByIdAndUpdate(campaignId, {
-    $inc: { sentCount, failedCount },
-    $set: { lastProcessedAt: new Date() },
-  });
-
-  logger.info({ campaignId, sentCount, failedCount }, "Campaign batch sent");
+  logger.info({ campaignId, sentCount: totalSentInBatch, failedCount: totalFailedInBatch }, "Campaign batch sent");
 
   // If every contact in the group has now been emailed, mark the campaign
   // completed in this same pass. Otherwise it would stay "running" until a later

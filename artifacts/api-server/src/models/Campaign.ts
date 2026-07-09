@@ -20,7 +20,7 @@ const campaignSchema = new mongoose.Schema(
     totalRecipients: { type: Number, default: 0 },
     sentCount: { type: Number, default: 0 },
     failedCount: { type: Number, default: 0 },
-    mailsPerBatch: { type: Number, default: 10 },
+    mailsPerBatch: { type: Number, default: 500 },
     intervalMinutes: { type: Number, default: 1 },
     lastProcessedAt: { type: Date, default: null },
     customHtml: { type: String, default: null },

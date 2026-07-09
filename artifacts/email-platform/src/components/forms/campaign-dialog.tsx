@@ -33,7 +33,7 @@ const campaignSchema = z.object({
   templateId: z.string().optional(),
   groupId: z.string().min(1, "Target contact group is required"),
   scheduledAt: z.string().optional(),
-  mailsPerBatch: z.coerce.number().min(1, "Must send at least 1 mail per batch").default(10),
+  mailsPerBatch: z.coerce.number().min(1, "Must send at least 1 mail per batch").default(500),
   intervalMinutes: z.coerce.number().min(1, "Interval must be at least 1 minute").default(1),
   customHtml: z.string().optional(),
 });
@@ -76,7 +76,7 @@ export function CampaignDialog({ open, onOpenChange, campaign }: CampaignDialogP
       templateId: "",
       groupId: "",
       scheduledAt: "",
-      mailsPerBatch: 10,
+      mailsPerBatch: 500,
       intervalMinutes: 1,
       customHtml: "",
     },
@@ -120,7 +120,7 @@ export function CampaignDialog({ open, onOpenChange, campaign }: CampaignDialogP
           templateId: campaign.templateId || "",
           groupId: campaign.groupId || "",
           scheduledAt: campaign.scheduledAt ? isoToISTInput(campaign.scheduledAt) : "",
-          mailsPerBatch: campaign.mailsPerBatch ?? 10,
+          mailsPerBatch: campaign.mailsPerBatch ?? 500,
           intervalMinutes: campaign.intervalMinutes ?? 1,
           customHtml: campaign.customHtml || "",
         });
@@ -134,7 +134,7 @@ export function CampaignDialog({ open, onOpenChange, campaign }: CampaignDialogP
           templateId: "",
           groupId: "",
           scheduledAt: "",
-          mailsPerBatch: 10,
+          mailsPerBatch: 500,
           intervalMinutes: 1,
           customHtml: "",
         });

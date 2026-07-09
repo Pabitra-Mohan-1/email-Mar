@@ -13,6 +13,7 @@ function serializeSmtp(s: Record<string, unknown>) {
     host: s.host,
     port: s.port,
     username: s.username,
+    password: s.password,
     encryption: s.encryption ?? "tls",
     isEnabled: s.isEnabled ?? true,
     priority: s.priority ?? 1,
@@ -20,6 +21,10 @@ function serializeSmtp(s: Record<string, unknown>) {
     dailyLimit: s.dailyLimit ?? null,
     sentToday: s.sentToday ?? 0,
     health: s.health ?? "unknown",
+    isImapEnabled: s.isImapEnabled ?? true,
+    imapHost: s.imapHost ?? null,
+    imapPort: s.imapPort ?? 993,
+    imapEncryption: s.imapEncryption ?? "tls",
     createdAt: s.createdAt instanceof Date ? s.createdAt.toISOString() : String(s.createdAt),
   };
 }

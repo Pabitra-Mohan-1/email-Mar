@@ -16,6 +16,7 @@ import { useCreateSmtpAccount, useUpdateSmtpAccount, getListSmtpAccountsQueryKey
 import { useToast } from "@/hooks/use-toast";
 import { useQueryClient } from "@tanstack/react-query";
 import { SmtpAccountInputEncryption, SmtpAccountInputImapEncryption } from "@workspace/api-client-react";
+import { Eye, EyeOff } from "lucide-react";
 
 const smtpSchema = z.object({
   name: z.string().min(1, "Name is required"),
@@ -46,6 +47,7 @@ export function SmtpDialog({ open, onOpenChange, account }: SmtpDialogProps) {
   const queryClient = useQueryClient();
   const createAccount = useCreateSmtpAccount();
   const updateAccount = useUpdateSmtpAccount();
+  const [showPassword, setShowPassword] = useState(false);
 
   const {
     register,
@@ -71,13 +73,14 @@ export function SmtpDialog({ open, onOpenChange, account }: SmtpDialogProps) {
 
   useEffect(() => {
     if (open) {
+      setShowPassword(false);
       if (account) {
         reset({ 
           name: account.name,
           host: account.host,
           port: account.port,
           username: account.username,
-          password: "", // don't pre-fill password
+          password: account.password || "",
           encryption: account.encryption,
           priority: account.priority,
           hourlyLimit: account.hourlyLimit || undefined,
@@ -178,7 +181,25 @@ export function SmtpDialog({ open, onOpenChange, account }: SmtpDialogProps) {
             </div>
             <div className="space-y-2">
               <Label htmlFor="password">Password</Label>
-              <Input id="password" type="password" {...register("password")} placeholder={account ? "(Leave blank to keep unchanged)" : ""} />
+              <div className="relative">
+                <Input 
+                  id="password" 
+                  type={showPassword ? "text" : "password"} 
+                  {...register("password")} 
+                  className="pr-10"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground focus:outline-none"
+                >
+                  {showPassword ? (
+                    <EyeOff className="h-4 w-4" />
+                  ) : (
+                    <Eye className="h-4 w-4" />
+                  )}
+                </button>
+              </div>
               {errors.password && <p className="text-sm text-destructive">{errors.password.message}</p>}
             </div>
           </div>
