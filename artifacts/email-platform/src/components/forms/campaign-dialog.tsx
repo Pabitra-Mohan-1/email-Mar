@@ -167,6 +167,20 @@ export function CampaignDialog({ open, onOpenChange, campaign }: CampaignDialogP
     }
   };
 
+  const senderNameValue = watch("senderName");
+  const rawHtmlForPreview = customHtmlValue || activeTemplate?.htmlContent || "";
+  const previewHtml = rawHtmlForPreview
+    .replace(/\{\{name\}\}/gi, "John Doe")
+    .replace(/\[\[NAME\]\]/gi, "John Doe")
+    .replace(/\{\{email\}\}/gi, "john.doe@example.com")
+    .replace(/\{\{company\}\}/gi, "example.com")
+    .replace(/\{\{domain\}\}/gi, "example.com")
+    .replace(/\[\[DOMAIN\]\]/g, "example.com")
+    .replace(/\{\{senderName\}\}/gi, senderNameValue || "Marketing Consultant")
+    .replace(/\{\{sender_name\}\}/gi, senderNameValue || "Marketing Consultant")
+    .replace(/\[\[SENDER_NAME\]\]/gi, senderNameValue || "Marketing Consultant")
+    .replace(/\bNAME\b/g, senderNameValue || "Marketing Consultant");
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
@@ -175,7 +189,43 @@ export function CampaignDialog({ open, onOpenChange, campaign }: CampaignDialogP
         </DialogHeader>
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4 py-4">
           
-          {/* Step 1: Select Email Template */}
+          {/* Step 1: Campaign Name & Sender Details */}
+          <div className="space-y-2">
+            <Label htmlFor="name">Campaign Name (Internal Reference)</Label>
+            <Input id="name" {...register("name")} placeholder="e.g. June Digital Marketing Outreach" />
+            {errors.name && <p className="text-sm text-destructive">{errors.name.message}</p>}
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label htmlFor="smtpAccountId">SMTP Account (Sender)</Label>
+              <select 
+                id="smtpAccountId" 
+                {...register("smtpAccountId")}
+                className="flex h-10 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+              >
+                <option value="">Select an account...</option>
+                {smtpAccounts?.map(account => (
+                  <option key={account.id} value={account.id}>{account.name} ({account.host})</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-2">
+                <Label htmlFor="senderName">Sender Display Name</Label>
+                <Input id="senderName" {...register("senderName")} placeholder="e.g. John Doe" />
+                {errors.senderName && <p className="text-sm text-destructive">{errors.senderName.message}</p>}
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="senderEmail">Sender Email</Label>
+                <Input id="senderEmail" {...register("senderEmail")} placeholder="sender@domain.com" />
+                {errors.senderEmail && <p className="text-sm text-destructive">{errors.senderEmail.message}</p>}
+              </div>
+            </div>
+          </div>
+
+          {/* Step 2: Select Email Template */}
           <div className="space-y-2">
             <Label htmlFor="templateId">Email Template</Label>
             <select 
@@ -197,7 +247,7 @@ export function CampaignDialog({ open, onOpenChange, campaign }: CampaignDialogP
             {errors.subject && <p className="text-sm text-destructive">{errors.subject.message}</p>}
           </div>
 
-          {/* Mail Preview & Editing Frame (only if a template is selected) */}
+          {/* Mail Preview & Editing Frame */}
           {(activeTemplate || customHtmlValue) && (
             <div className="space-y-2 border rounded-md p-3 bg-slate-50 dark:bg-slate-900/30">
               <div className="flex items-center justify-between">
@@ -223,7 +273,7 @@ export function CampaignDialog({ open, onOpenChange, campaign }: CampaignDialogP
                 <div className="h-[250px] border rounded bg-white overflow-hidden shadow-sm">
                   <iframe
                     title="Campaign Template Live Preview"
-                    srcDoc={customHtmlValue || activeTemplate?.htmlContent || ""}
+                    srcDoc={previewHtml}
                     className="w-full h-full border-0 bg-white"
                     sandbox="allow-same-origin"
                   />
@@ -231,43 +281,6 @@ export function CampaignDialog({ open, onOpenChange, campaign }: CampaignDialogP
               )}
             </div>
           )}
-
-          {/* Step 2: Campaign Name (Internal) */}
-          <div className="space-y-2">
-            <Label htmlFor="name">Campaign Name (Internal Reference)</Label>
-            <Input id="name" {...register("name")} placeholder="e.g. June Digital Marketing Outreach" />
-            {errors.name && <p className="text-sm text-destructive">{errors.name.message}</p>}
-          </div>
-
-          {/* Step 3: Sender Configuration (SMTP Selection) */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
-            <div className="space-y-2">
-              <Label htmlFor="smtpAccountId">SMTP Account (Sender)</Label>
-              <select 
-                id="smtpAccountId" 
-                {...register("smtpAccountId")}
-                className="flex h-10 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
-              >
-                <option value="">Select an account...</option>
-                {smtpAccounts?.map(account => (
-                  <option key={account.id} value={account.id}>{account.name} ({account.host})</option>
-                ))}
-              </select>
-            </div>
-
-            <div className="grid grid-cols-2 gap-2">
-              <div className="space-y-2">
-                <Label htmlFor="senderName">Sender Display Name</Label>
-                <Input id="senderName" {...register("senderName")} placeholder="e.g. Acme Corp" />
-                {errors.senderName && <p className="text-sm text-destructive">{errors.senderName.message}</p>}
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="senderEmail">Sender Email Address</Label>
-                <Input id="senderEmail" {...register("senderEmail")} placeholder="hello@acme.com" />
-                {errors.senderEmail && <p className="text-sm text-destructive">{errors.senderEmail.message}</p>}
-              </div>
-            </div>
-          </div>
 
           {/* Step 4: Target Group & Schedule */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">

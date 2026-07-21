@@ -54,16 +54,21 @@ async function processRunningCampaigns() {
     try {
       await processCampaign(campaign);
     } catch (err) {
-      logger.error({ err, campaignId: campaign._id }, "Error processing campaign");
+      logger.error(
+        { err, campaignId: campaign._id },
+        "Error processing campaign",
+      );
     }
   }
 }
 
 async function processCampaign(campaign: Record<string, unknown>) {
   const campaignId = campaign._id as string;
-  
+
   // 1. Check if interval duration has elapsed since last run
-  const lastProcessed = campaign.lastProcessedAt ? new Date(campaign.lastProcessedAt as string) : null;
+  const lastProcessed = campaign.lastProcessedAt
+    ? new Date(campaign.lastProcessedAt as string)
+    : null;
   const intervalMinutes = (campaign.intervalMinutes as number) ?? 1;
 
   if (lastProcessed) {
@@ -74,7 +79,8 @@ async function processCampaign(campaign: Record<string, unknown>) {
     }
   }
 
-  const hourlyLimit = (campaign.hourlyLimit as number | null) ?? DEFAULT_HOURLY_LIMIT;
+  const hourlyLimit =
+    (campaign.hourlyLimit as number | null) ?? DEFAULT_HOURLY_LIMIT;
 
   // Count emails sent for this campaign in the last hour
   const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
@@ -86,7 +92,10 @@ async function processCampaign(campaign: Record<string, unknown>) {
 
   const remaining = hourlyLimit - sentLastHour;
   if (remaining <= 0) {
-    logger.info({ campaignId, sentLastHour, hourlyLimit }, "Hourly limit reached, skipping");
+    logger.info(
+      { campaignId, sentLastHour, hourlyLimit },
+      "Hourly limit reached, skipping",
+    );
     return;
   }
 
@@ -95,7 +104,9 @@ async function processCampaign(campaign: Record<string, unknown>) {
   const limitCount = Math.min(mailsPerBatch, remaining);
 
   // Get contacts already emailed for this campaign (any status)
-  const emailedRecipients = await EmailLog.distinct("recipient", { campaignId });
+  const emailedRecipients = await EmailLog.distinct("recipient", {
+    campaignId,
+  });
 
   // Get contacts from group. A campaign MUST target a group — without one we
   // would email every active contact, which is almost never intended. Guard
@@ -103,7 +114,10 @@ async function processCampaign(campaign: Record<string, unknown>) {
   const groupId = campaign.groupId;
   if (!groupId) {
     await Campaign.findByIdAndUpdate(campaignId, { status: "paused" });
-    logger.warn({ campaignId }, "Campaign has no target group — pausing to avoid sending to all contacts");
+    logger.warn(
+      { campaignId },
+      "Campaign has no target group — pausing to avoid sending to all contacts",
+    );
     return;
   }
   const filter: Record<string, unknown> = { isActive: true, groupIds: groupId };
@@ -117,9 +131,9 @@ async function processCampaign(campaign: Record<string, unknown>) {
 
   if (contacts.length === 0) {
     // All contacts have been emailed — mark complete
-    await Campaign.findByIdAndUpdate(campaignId, { 
+    await Campaign.findByIdAndUpdate(campaignId, {
       status: "completed",
-      lastProcessedAt: new Date()
+      lastProcessedAt: new Date(),
     });
     logger.info({ campaignId }, "Campaign completed");
     return;
@@ -128,7 +142,9 @@ async function processCampaign(campaign: Record<string, unknown>) {
   // Load SMTP account
   const smtpDoc = campaign.smtpAccountId
     ? await SmtpAccount.findById(campaign.smtpAccountId).lean()
-    : await SmtpAccount.findOne({ isEnabled: true }).sort({ priority: 1 }).lean();
+    : await SmtpAccount.findOne({ isEnabled: true })
+        .sort({ priority: 1 })
+        .lean();
 
   if (!smtpDoc) {
     logger.warn({ campaignId }, "No enabled SMTP account found for campaign");
@@ -140,7 +156,9 @@ async function processCampaign(campaign: Record<string, unknown>) {
   if (campaign.customHtml) {
     html = campaign.customHtml as string;
   } else if (campaign.templateId) {
-    const tpl = await EmailTemplate.findById(campaign.templateId).lean() as Record<string, unknown> | null;
+    const tpl = (await EmailTemplate.findById(
+      campaign.templateId,
+    ).lean()) as Record<string, unknown> | null;
     if (tpl && tpl.htmlContent) html = tpl.htmlContent as string;
   }
 
@@ -167,18 +185,50 @@ async function processCampaign(campaign: Record<string, unknown>) {
       chunk.map(async (contact) => {
         try {
           const contactRecord = contact as Record<string, unknown>;
-          const name = (contactRecord.name as string | null) ?? (contactRecord.email as string);
-          const companyStr = (contactRecord.company as string) ?? "";
-          
-          const personalizedSubject = (campaign.subject as string)
-            .replace(/\{\{name\}\}/gi, name)
-            .replace(/\{\{email\}\}/gi, contactRecord.email as string)
-            .replace(/\{\{company\}\}/gi, companyStr);
+          const contactEmail = (contactRecord.email as string) || "";
+          const contactNameRaw = typeof contactRecord.name === "string" ? contactRecord.name.trim() : "";
+          const websiteStr = (contactRecord.website as string) || "";
+          const companyStr = (contactRecord.company as string) || "";
 
-          const personalizedHtml = html
-            .replace(/\{\{name\}\}/gi, name)
-            .replace(/\{\{email\}\}/gi, contactRecord.email as string)
-            .replace(/\{\{company\}\}/gi, companyStr);
+          // Extract domain name: prefer website URL/host, fallback to company, fallback to email domain
+          let domainName = "";
+          if (websiteStr) {
+            try {
+              const urlStr = websiteStr.startsWith("http") ? websiteStr : `https://${websiteStr}`;
+              const parsedUrl = new URL(urlStr);
+              domainName = parsedUrl.hostname.replace(/^www\./i, "");
+            } catch {
+              domainName = websiteStr.replace(/^https?:\/\//i, "").replace(/^www\./i, "").split("/")[0];
+            }
+          }
+          if (!domainName && companyStr) {
+            domainName = companyStr;
+          }
+          if (!domainName && contactEmail.includes("@")) {
+            domainName = contactEmail.split("@")[1];
+          }
+
+          const name = contactNameRaw || domainName || (contactEmail.includes("@") ? contactEmail.split("@")[0] : "there");
+          const senderNameStr = (campaign.senderName as string)?.trim() || "Marketing Consultant";
+
+          // Perform robust global replacement for both brackets [[DOMAIN]] and {{domain}} / {{senderName}} / NAME
+          const replacePlaceholders = (text: string) => {
+            if (!text) return "";
+            return text
+              .replace(/\[\[DOMAIN\]\]/gi, domainName)
+              .replace(/\{\{domain\}\}/gi, domainName)
+              .replace(/\[\[NAME\]\]/gi, name)
+              .replace(/\{\{name\}\}/gi, name)
+              .replace(/\{\{email\}\}/gi, contactEmail)
+              .replace(/\{\{company\}\}/gi, companyStr)
+              .replace(/\[\[SENDER_NAME\]\]/gi, senderNameStr)
+              .replace(/\{\{senderName\}\}/gi, senderNameStr)
+              .replace(/\{\{sender_name\}\}/gi, senderNameStr)
+              .replace(/\bNAME\b/g, senderNameStr);
+          };
+
+          const personalizedSubject = replacePlaceholders(campaign.subject as string);
+          const personalizedHtml = replacePlaceholders(html);
 
           const result = await sendEmail(smtpCfg, {
             to: contactRecord.email as string,
@@ -199,10 +249,13 @@ async function processCampaign(campaign: Record<string, unknown>) {
 
           return result.success;
         } catch (innerErr) {
-          logger.error({ innerErr, recipient: (contact as any).email }, "Failed to process recipient in batch");
+          logger.error(
+            { innerErr, recipient: (contact as any).email },
+            "Failed to process recipient in batch",
+          );
           return false;
         }
-      })
+      }),
     );
 
     for (const success of results) {
@@ -218,16 +271,23 @@ async function processCampaign(campaign: Record<string, unknown>) {
     // Update progress incrementally in database after each chunk so the UI updates live
     if (chunkSentCount > 0 || chunkFailedCount > 0) {
       await Campaign.findByIdAndUpdate(campaignId, {
-        $inc: { 
-          sentCount: chunkSentCount, 
-          failedCount: chunkFailedCount 
+        $inc: {
+          sentCount: chunkSentCount,
+          failedCount: chunkFailedCount,
         },
         $set: { lastProcessedAt: new Date() },
       });
     }
   }
 
-  logger.info({ campaignId, sentCount: totalSentInBatch, failedCount: totalFailedInBatch }, "Campaign batch sent");
+  logger.info(
+    {
+      campaignId,
+      sentCount: totalSentInBatch,
+      failedCount: totalFailedInBatch,
+    },
+    "Campaign batch sent",
+  );
 
   // If every contact in the group has now been emailed, mark the campaign
   // completed in this same pass. Otherwise it would stay "running" until a later

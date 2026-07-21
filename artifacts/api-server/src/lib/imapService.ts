@@ -1,7 +1,12 @@
 import { ImapFlow } from "imapflow";
 import { simpleParser } from "mailparser";
 import { IncomingEmail } from "../models/IncomingEmail";
-import { runAiClassification, summarizeThread, basicSummary, type ThreadMessage } from "./aiService";
+import {
+  runAiClassification,
+  summarizeThread,
+  basicSummary,
+  type ThreadMessage,
+} from "./aiService";
 import { scoreLead, NEGATIVE_THRESHOLD } from "./leadKeywords";
 import { logger } from "./logger"; // Let's check if logger is in lib or models. We will write it or check first.
 
@@ -17,7 +22,7 @@ interface ImapConfig {
 export function classifyEmail(
   sender: string,
   subject: string,
-  body = ""
+  body = "",
 ): "reply" | "bounce" | "auto-reply" {
   const email = sender.toLowerCase();
   const subj = subject.toLowerCase();
@@ -147,7 +152,13 @@ export function classifyEmail(
   ];
 
   if (
-    autoLocalParts.some((p) => localPart === p || localPart.startsWith(`${p}-`) || localPart.startsWith(`${p}.`) || localPart.startsWith(`${p}+`)) ||
+    autoLocalParts.some(
+      (p) =>
+        localPart === p ||
+        localPart.startsWith(`${p}-`) ||
+        localPart.startsWith(`${p}.`) ||
+        localPart.startsWith(`${p}+`),
+    ) ||
     autoDomains.some((d) => domain.includes(d)) ||
     autoSubjects.some((s) => subj.includes(s)) ||
     autoBodies.some((s) => text.includes(s))
@@ -158,7 +169,9 @@ export function classifyEmail(
   return "reply";
 }
 
-export async function syncImapEmails(config: ImapConfig): Promise<{ syncedCount: number }> {
+export async function syncImapEmails(
+  config: ImapConfig,
+): Promise<{ syncedCount: number }> {
   const client = new ImapFlow({
     host: config.host,
     port: config.port,
@@ -182,16 +195,22 @@ export async function syncImapEmails(config: ImapConfig): Promise<{ syncedCount:
   const lock = await client.getMailboxLock("INBOX");
   try {
     // Find the latest UID we already stored for this account
-    const latestEmail = await IncomingEmail.findOne({ accountId: config.accountId })
+    const latestEmail = await IncomingEmail.findOne({
+      accountId: config.accountId,
+    })
       .sort({ uid: -1 })
       .select("uid");
 
     const lastUid = latestEmail ? latestEmail.uid : 0;
-    
+
     let messages;
     if (lastUid > 0) {
       // Fetch only messages newer than our last saved message UID (UID-based query)
-      messages = client.fetch({ uid: `${lastUid + 1}:*` }, { envelope: true, source: true }, { uid: true });
+      messages = client.fetch(
+        { uid: `${lastUid + 1}:*` },
+        { envelope: true, source: true },
+        { uid: true },
+      );
     } else {
       // First sync: to avoid fetching thousands of emails, we only fetch the last 50 (sequence-based query)
       const status = await client.status("INBOX", { messages: true });
@@ -202,22 +221,30 @@ export async function syncImapEmails(config: ImapConfig): Promise<{ syncedCount:
         messages = [];
       } else {
         const startSeq = Math.max(1, totalMessages - 49);
-        messages = client.fetch(`${startSeq}:*`, { envelope: true, source: true });
+        messages = client.fetch(`${startSeq}:*`, {
+          envelope: true,
+          source: true,
+        });
       }
     }
 
     for await (const message of messages) {
       // Check if we already have this UID to prevent race conditions or duplicates
-      const exists = await IncomingEmail.exists({ accountId: config.accountId, uid: message.uid });
+      const exists = await IncomingEmail.exists({
+        accountId: config.accountId,
+        uid: message.uid,
+      });
       if (exists) continue;
 
       try {
         if (!message.source) {
-          console.warn(`Skipping message UID ${message.uid} because it has no source content.`);
+          console.warn(
+            `Skipping message UID ${message.uid} because it has no source content.`,
+          );
           continue;
         }
         const parsed = await simpleParser(message.source);
-        
+
         // Parse "from" header
         let fromName = "";
         let fromAddress = "";
@@ -225,7 +252,11 @@ export async function syncImapEmails(config: ImapConfig): Promise<{ syncedCount:
           const fromObj = parsed.from.value[0];
           fromName = fromObj.name || "";
           fromAddress = fromObj.address || "";
-        } else if (message.envelope && message.envelope.from && message.envelope.from.length > 0) {
+        } else if (
+          message.envelope &&
+          message.envelope.from &&
+          message.envelope.from.length > 0
+        ) {
           const envFrom = message.envelope.from[0];
           fromName = envFrom.name || "";
           fromAddress = envFrom.address || "";
@@ -239,7 +270,12 @@ export async function syncImapEmails(config: ImapConfig): Promise<{ syncedCount:
             toAddress = toObj.value[0].address || "";
           }
         }
-        if (!toAddress && message.envelope && message.envelope.to && message.envelope.to.length > 0) {
+        if (
+          !toAddress &&
+          message.envelope &&
+          message.envelope.to &&
+          message.envelope.to.length > 0
+        ) {
           const envTo = message.envelope.to[0];
           toAddress = envTo.address || "";
         }
@@ -249,7 +285,11 @@ export async function syncImapEmails(config: ImapConfig): Promise<{ syncedCount:
         if (!toAddress) toAddress = config.username;
 
         const subjectStr = parsed.subject || message.envelope?.subject || "";
-        const category = classifyEmail(fromAddress, subjectStr, parsed.text || "");
+        const category = classifyEmail(
+          fromAddress,
+          subjectStr,
+          parsed.text || "",
+        );
 
         let leadStatus = "unclassified";
         let aiReason = "";
@@ -266,21 +306,25 @@ export async function syncImapEmails(config: ImapConfig): Promise<{ syncedCount:
             // Clear opt-out / disinterest — tag directly, skip the LLM.
             leadStatus = "not_interested";
             aiReason = `Keyword classifier: matched ${scored.hits.join(", ")}`;
-            aiDraft = "Thank you for letting us know. We've noted your response and won't reach out further.";
+            aiDraft =
+              "Thank you for letting us know. We've noted your response and won't reach out further.";
             aiSummary = basicSummary(subjectStr, parsed.text || "");
           } else {
             try {
               const aiRes = await runAiClassification(
                 subjectStr,
                 parsed.text || "",
-                scored.hint
+                scored.hint,
               );
               leadStatus = aiRes.leadStatus;
               aiReason = aiRes.aiReason;
               aiDraft = aiRes.aiDraft;
               aiSummary = aiRes.aiSummary;
             } catch (aiErr) {
-              console.error("AI classification failed during IMAP sync:", aiErr);
+              console.error(
+                "AI classification failed during IMAP sync:",
+                aiErr,
+              );
             }
           }
         }

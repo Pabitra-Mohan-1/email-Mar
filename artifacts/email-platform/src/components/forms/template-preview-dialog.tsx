@@ -17,8 +17,15 @@ export function TemplatePreviewDialog({ open, onOpenChange, template }: Template
   // Simple placeholder replacement for preview
   const previewHtml = (template.htmlContent || "")
     .replace(/\{\{name\}\}/gi, "John Doe")
+    .replace(/\[\[NAME\]\]/gi, "John Doe")
     .replace(/\{\{email\}\}/gi, "john.doe@example.com")
-    .replace(/\{\{company\}\}/gi, "Acme Corporation");
+    .replace(/\{\{company\}\}/gi, "example.com")
+    .replace(/\{\{domain\}\}/gi, "example.com")
+    .replace(/\[\[DOMAIN\]\]/g, "example.com")
+    .replace(/\{\{senderName\}\}/gi, "Marketing Consultant")
+    .replace(/\{\{sender_name\}\}/gi, "Marketing Consultant")
+    .replace(/\[\[SENDER_NAME\]\]/gi, "Marketing Consultant")
+    .replace(/\bNAME\b/g, "Marketing Consultant");
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>

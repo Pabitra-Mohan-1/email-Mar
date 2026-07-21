@@ -6,12 +6,31 @@ const campaignSchema = new mongoose.Schema(
     subject: { type: String, required: true },
     senderName: { type: String, required: true },
     senderEmail: { type: String, required: true },
-    smtpAccountId: { type: mongoose.Schema.Types.ObjectId, ref: "SmtpAccount", default: null },
-    templateId: { type: mongoose.Schema.Types.ObjectId, ref: "EmailTemplate", default: null },
-    groupId: { type: mongoose.Schema.Types.ObjectId, ref: "ContactGroup", default: null },
+    smtpAccountId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "SmtpAccount",
+      default: null,
+    },
+    templateId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "EmailTemplate",
+      default: null,
+    },
+    groupId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "ContactGroup",
+      default: null,
+    },
     status: {
       type: String,
-      enum: ["draft", "scheduled", "running", "paused", "completed", "cancelled"],
+      enum: [
+        "draft",
+        "scheduled",
+        "running",
+        "paused",
+        "completed",
+        "cancelled",
+      ],
       default: "draft",
     },
     scheduledAt: { type: Date, default: null },
@@ -25,7 +44,7 @@ const campaignSchema = new mongoose.Schema(
     lastProcessedAt: { type: Date, default: null },
     customHtml: { type: String, default: null },
   },
-  { timestamps: true }
+  { timestamps: true },
 );
 
 campaignSchema.index({ status: 1 });

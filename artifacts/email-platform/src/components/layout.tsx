@@ -1,19 +1,19 @@
 import { useState } from "react";
 import { Link, useLocation } from "wouter";
-import { 
-  LayoutDashboard, 
-  Users, 
-  FolderHeart, 
-  FileText, 
-  Server, 
-  Send, 
-  ScrollText, 
+import {
+  LayoutDashboard,
+  Users,
+  FolderHeart,
+  FileText,
+  Server,
+  Send,
+  ScrollText,
   BarChart3,
   LogOut,
   Mail,
   Sparkles,
   Brain,
-  Menu
+  Menu,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
@@ -45,7 +45,11 @@ export function Layout({ children }: { children: React.ReactNode }) {
       {/* Mobile Header */}
       <header className="flex h-16 w-full items-center justify-between border-b bg-background px-6 sm:hidden sticky top-0 z-20">
         <Link href="/" className="flex items-center gap-2 font-semibold">
-          <img src="/logo.png" alt="Worklance Sender AI" className="h-10 max-w-full object-contain" />
+          <img
+            src="/logo.png"
+            alt="Worklance Sender AI"
+            className="h-10 max-w-full object-contain"
+          />
         </Link>
         <Sheet open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
           <SheetTrigger asChild>
@@ -53,27 +57,40 @@ export function Layout({ children }: { children: React.ReactNode }) {
               <Menu className="h-6 w-6" />
             </Button>
           </SheetTrigger>
-          <SheetContent side="left" className="w-64 p-0 flex flex-col h-full bg-background border-r">
+          <SheetContent
+            side="left"
+            className="w-64 p-0 flex flex-col h-full bg-background border-r"
+          >
             <div className="flex h-20 items-center border-b px-6 py-2">
-              <Link href="/" className="flex items-center gap-2 font-semibold" onClick={() => setMobileMenuOpen(false)}>
-                <img src="/logo.png" alt="Worklance Sender AI" className="h-12 max-w-full object-contain" />
+              <Link
+                href="/"
+                className="flex items-center gap-2 font-semibold"
+                onClick={() => setMobileMenuOpen(false)}
+              >
+                <img
+                  src="/logo.png"
+                  alt="Worklance Sender AI"
+                  className="h-12 max-w-full object-contain"
+                />
               </Link>
             </div>
             <nav className="flex-1 overflow-y-auto px-4 py-4 space-y-1">
               {NAV_ITEMS.map((item) => {
-                const isActive = location === item.href || (item.href !== "/" && location.startsWith(item.href));
+                const isActive =
+                  location === item.href ||
+                  (item.href !== "/" && location.startsWith(item.href));
                 const Icon = item.icon;
-                
+
                 return (
-                  <Link 
-                    key={item.href} 
+                  <Link
+                    key={item.href}
                     href={item.href}
                     onClick={() => setMobileMenuOpen(false)}
                     className={cn(
                       "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
-                      isActive 
-                        ? "bg-primary text-primary-foreground" 
-                        : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                      isActive
+                        ? "bg-primary text-primary-foreground"
+                        : "text-muted-foreground hover:bg-muted hover:text-foreground",
                     )}
                   >
                     <Icon className="h-4 w-4" />
@@ -84,12 +101,18 @@ export function Layout({ children }: { children: React.ReactNode }) {
             </nav>
             <div className="p-4 border-t space-y-2">
               {user && (
-                <div className="px-3 text-xs text-muted-foreground truncate" title={user.email}>
-                  Admin:<br/>
-                  <span className="font-semibold text-foreground">{user.email}</span>
+                <div
+                  className="px-3 text-xs text-muted-foreground truncate"
+                  title={user.email}
+                >
+                  Admin:
+                  <br />
+                  <span className="font-semibold text-foreground">
+                    {user.email}
+                  </span>
                 </div>
               )}
-              <button 
+              <button
                 onClick={() => {
                   setMobileMenuOpen(false);
                   logout();
@@ -108,23 +131,29 @@ export function Layout({ children }: { children: React.ReactNode }) {
       <aside className="fixed inset-y-0 left-0 z-10 hidden w-64 flex-col border-r bg-background sm:flex">
         <div className="flex h-20 items-center border-b px-6 py-2">
           <Link href="/" className="flex items-center gap-2 font-semibold">
-            <img src="/logo.png" alt="Worklance Sender AI" className="h-12 max-w-full object-contain" />
+            <img
+              src="/logo.png"
+              alt="Worklance Sender AI"
+              className="h-12 max-w-full object-contain"
+            />
           </Link>
         </div>
         <nav className="flex-1 overflow-y-auto px-4 py-4 space-y-1">
           {NAV_ITEMS.map((item) => {
-            const isActive = location === item.href || (item.href !== "/" && location.startsWith(item.href));
+            const isActive =
+              location === item.href ||
+              (item.href !== "/" && location.startsWith(item.href));
             const Icon = item.icon;
-            
+
             return (
-              <Link 
-                key={item.href} 
+              <Link
+                key={item.href}
                 href={item.href}
                 className={cn(
                   "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
-                  isActive 
-                    ? "bg-primary text-primary-foreground" 
-                    : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                  isActive
+                    ? "bg-primary text-primary-foreground"
+                    : "text-muted-foreground hover:bg-muted hover:text-foreground",
                 )}
               >
                 <Icon className="h-4 w-4" />
@@ -135,12 +164,18 @@ export function Layout({ children }: { children: React.ReactNode }) {
         </nav>
         <div className="p-4 border-t space-y-2">
           {user && (
-            <div className="px-3 text-xs text-muted-foreground truncate" title={user.email}>
-              Admin:<br/>
-              <span className="font-semibold text-foreground">{user.email}</span>
+            <div
+              className="px-3 text-xs text-muted-foreground truncate"
+              title={user.email}
+            >
+              Admin:
+              <br />
+              <span className="font-semibold text-foreground">
+                {user.email}
+              </span>
             </div>
           )}
-          <button 
+          <button
             onClick={logout}
             className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground cursor-pointer text-left bg-transparent border-0"
           >
@@ -152,9 +187,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
 
       {/* Main Content */}
       <main className="flex-1 sm:pl-64 flex flex-col min-w-0">
-        <div className="flex-1 p-4 sm:p-8">
-          {children}
-        </div>
+        <div className="flex-1 p-4 sm:p-8">{children}</div>
       </main>
     </div>
   );
